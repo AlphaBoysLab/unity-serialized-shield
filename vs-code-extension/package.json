@@ -1,0 +1,62 @@
+{
+  "name": "unity-serialized-shield",
+  "displayName": "UnitySerializedShield",
+  "description": "Ensures seamless variable refactoring by automatically synchronizing renames across all source and serialized references.",
+  "version": "1.0.2",
+  "icon": "images/icon.png",
+  "publisher": "alphaboyslab",
+  "license": "MIT",
+  "pricing": "Free",
+  "engines": {
+    "vscode": "^1.118.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "unity",
+    "csharp",
+    "serializedfield",
+    "formerlyserializedas",
+    "refactoring",
+    "rename"
+  ],
+  "galleryBanner": {
+    "color": "#1F2937",
+    "theme": "dark"
+  },
+  "activationEvents": [
+    "onLanguage:csharp",
+    "workspaceContains:**/*.cs"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "UnitySerializedShield.showStatus",
+        "title": "UnitySerializedShield: Show Status"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package:vsix": "vsce package",
+    "publish:vsce": "vsce publish",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.19.19",
+    "@types/vscode": "^1.118.0",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.9.1",
+    "eslint": "^9.39.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1"
+  }
+}

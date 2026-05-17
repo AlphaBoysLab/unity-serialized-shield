@@ -1,0 +1,21 @@
+{
+  "name": "com.alphaboyslab.unity-serialized-shield",
+  "version": "1.0.0",
+  "displayName": "Unity Serialized Shield",
+  "description": "Safely migrate renamed Unity serialized fields with an Editor migration window.",
+  "unity": "6000.3",
+  "license": "MIT",
+  "author": {
+    "name": "md-shahriar-islam",
+    "email": "shahriar.islam.dev@gmail.com",
+    "url": "https://github.com/Shahriar-Soft-Eng"
+  },
+  "keywords": [
+    "unity",
+    "editor",
+    "visual studio",
+    "vscode",
+    "serialization"
+  ],
+  "dependencies": {}
+}
