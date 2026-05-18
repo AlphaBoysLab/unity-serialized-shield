@@ -31,6 +31,7 @@ pnpm-debug.log*
 
 # Unity generated files
 *.csproj
+!visual-studio-extension/**/*.csproj
 *.sln
 *.suo
 *.tmp

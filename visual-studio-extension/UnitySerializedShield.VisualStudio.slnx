@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="UnitySerializedShield.VisualStudio\UnitySerializedShield.VisualStudio.csproj" />
+  <Project Path="UnitySerializedShield.Core\UnitySerializedShield.Core.csproj" />
+  <Project Path="UnitySerializedShield.Core.Tests\UnitySerializedShield.Core.Tests.csproj" />
+</Solution>
