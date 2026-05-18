@@ -14,7 +14,7 @@ namespace UnitySerializedShield.VisualStudio
         {
             Metadata = new(
                     id: "UnitySerializedShield.VisualStudio.80229c4b-82bf-41ef-b409-98eaaaff3e1c",
-                    version: this.ExtensionAssemblyVersion,
+                    version: new Version(1, 0, 0),
                     publisherName: "AlphaBoysLab",
                     displayName: "UnitySerializedShield",
                     description: "Protects Unity serialized fields when renamed in Visual Studio.")
