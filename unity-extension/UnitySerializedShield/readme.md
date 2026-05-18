@@ -45,13 +45,13 @@ This is the best option while developing or testing the package locally.
 Example:
 
 ```text
-https://github.com/YourUserName/YourRepositoryName.git
+https://github.com/AlphaBoysLab/unity-serialized-shield
 ```
 
 If this package is inside a repository subfolder, add the package path:
 
 ```text
-https://github.com/YourUserName/YourRepositoryName.git?path=/UnitySerializedShield
+https://github.com/AlphaBoysLab/unity-serialized-shield/tree/main/unity-extension/UnitySerializedShield
 ```
 
 ### Install Through manifest.json
@@ -61,7 +61,7 @@ Open your Unity project's `Packages/manifest.json` file and add the package unde
 ```json
 {
   "dependencies": {
-    "com.alphaboyslab.unity-serialized-shield": "https://github.com/YourUserName/YourRepositoryName.git?path=/UnitySerializedShield"
+    "com.alphaboyslab.unity-serialized-shield": "https://github.com/AlphaBoysLab/unity-serialized-shield/tree/main/unity-extension/UnitySerializedShield"
   }
 }
 ```
