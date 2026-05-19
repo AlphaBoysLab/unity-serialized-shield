@@ -1,20 +1,41 @@
-# UnitySerializedShield
+# UnitySerializedShield for Visual Studio Code
 
-UnitySerializedShield is a Visual Studio Code extension for Unity C# projects. It helps protect Unity Inspector values when serialized fields are renamed.
+UnitySerializedShield helps Unity developers safely rename serialized C# fields from Visual Studio Code without losing values already assigned in the Unity Inspector, prefabs, scenes, or ScriptableObjects.
 
-When a `[SerializeField]` field is renamed, UnitySerializedShield automatically adds Unity's `[FormerlySerializedAs]` migration attribute so Unity can reconnect the old serialized value to the new field name.
+When you rename a Unity field marked with `[SerializeField]`, Unity normally needs `[FormerlySerializedAs]` to understand that the old serialized data belongs to the new field name. UnitySerializedShield adds that migration attribute automatically when you use VS Code's real Rename Symbol command.
+
+## Why Use It
+
+Unity stores serialized values by field name. If a serialized field is renamed without migration metadata, Unity can lose the connection to existing Inspector values.
+
+UnitySerializedShield helps protect:
+
+- Inspector values on scene objects.
+- Prefab references and tuned prefab values.
+- ScriptableObject configuration data.
+- Serialized gameplay, UI, enemy, level, and balancing fields.
 
 ## Important Unity Migration Notice
 
-This extension protects the C# rename step, but Unity serialized data still needs to be migrated inside Unity. Do not manually remove all `[FormerlySerializedAs]` attributes before Unity has migrated the data. Removing them too early can cause Unity Inspector values, prefab references, scene references, or ScriptableObject data to be lost.
+This VS Code extension protects the C# rename step, but Unity serialized data still needs to be migrated inside Unity.
 
-For the safest workflow, also install the UnitySerializedShield Unity package from this repository:
+Do not manually remove all `[FormerlySerializedAs]` attributes before Unity has migrated the data. Removing them too early can cause Unity Inspector values, prefab references, scene references, or ScriptableObject data to be lost.
+
+For the safest workflow, also install the UnitySerializedShield Unity package from the GitHub repository:
 
 ```text
 unity-extension/UnitySerializedShield/package.json
 ```
 
-Install it in Unity with `Window > Package Manager > + > Add package from disk...`, then select the package file above. You can also install from Git:
+Install it in Unity:
+
+1. Open your Unity project.
+2. Go to `Window > Package Manager`.
+3. Click the `+` button.
+4. Choose `Add package from disk...`.
+5. Select `unity-extension/UnitySerializedShield/package.json`.
+
+You can also install the Unity package from Git:
 
 ```text
 https://github.com/AlphaBoysLab/unity-serialized-shield.git?path=unity-extension/UnitySerializedShield
@@ -24,20 +45,16 @@ After renaming fields, open Unity and run the SerializedShield migration workflo
 
 For full setup and migration instructions, visit the GitHub repository: [AlphaBoysLab/unity-serialized-shield](https://github.com/AlphaBoysLab/unity-serialized-shield)
 
-## Features
+## How It Works
 
-- Watches C# files in Unity projects.
-- Detects common `[SerializeField]` field renames.
-- Inserts `[FormerlySerializedAs("oldName")]` above the renamed field.
-- Adds `using UnityEngine.Serialization;` when the file needs it.
-- Avoids adding duplicate migration attributes.
+Rename a serialized field in VS Code using Rename Symbol from the menu or `F2`.
 
-Example:
+Before rename:
 
 ```csharp
 using UnityEngine;
 
-public class EnemySensor : MonoBehaviour
+public sealed class EnemySensor : MonoBehaviour
 {
     [SerializeField] private float maxDistance = 100f;
 }
@@ -49,46 +66,34 @@ After renaming `maxDistance` to `attackDistance`, UnitySerializedShield updates 
 using UnityEngine;
 using UnityEngine.Serialization;
 
-public class EnemySensor : MonoBehaviour
+public sealed class EnemySensor : MonoBehaviour
 {
     [FormerlySerializedAs("maxDistance")]
     [SerializeField] private float attackDistance = 100f;
 }
 ```
 
-## Requirements
+Unity can now reconnect the old serialized value to the new field name.
 
-- Visual Studio Code
-- A Unity C# project
-- C# scripts that use Unity serialized fields
+## Features
 
-UnitySerializedShield edits C# source files only. It does not modify Unity assets or scene files directly.
+- Detects safe Unity `[SerializeField]` field renames.
+- Adds `[FormerlySerializedAs("oldName")]` above the renamed field.
+- Adds `using UnityEngine.Serialization;` when needed.
+- Avoids duplicate migration attributes.
+- Ignores normal typing and only reacts to real VS Code rename edits.
+- Skips ambiguous cases instead of guessing.
 
-## Usage
+## Recommended Workflow
 
-1. Open a Unity project in Visual Studio Code.
-2. Rename a C# field marked with `[SerializeField]`.
-3. UnitySerializedShield adds the migration attribute automatically when it recognizes a safe rename.
+1. Install this VS Code extension.
+2. Install the UnitySerializedShield Unity package in your Unity project.
+3. Rename serialized fields in VS Code with Rename Symbol or `F2`.
+4. Let the extension add `[FormerlySerializedAs("oldName")]`.
+5. Open Unity and run the SerializedShield migration workflow.
+6. Let the Unity package migrate serialized assets and clean completed migration attributes.
 
-You can also run `UnitySerializedShield: Show Status` from the Command Palette to confirm the extension is active.
-
-## Install From VSIX
-
-If you download a `.vsix` file from a GitHub Release:
-
-1. Open Visual Studio Code.
-2. Open the Extensions view.
-3. Select `Views and More Actions...`.
-4. Select `Install from VSIX...`.
-5. Choose the downloaded `unity-serialized-shield-*.vsix` file.
-
-You can also install from the command line:
-
-```powershell
-code --install-extension unity-serialized-shield-1.0.3.vsix
-```
-
-## Supported Patterns
+## Supported Field Patterns
 
 UnitySerializedShield focuses on common Unity field declarations:
 
@@ -106,94 +111,28 @@ private float maxDistance = 100f;
 [SerializeField] private float maxDistance = 100f;
 ```
 
-## Known Limitations
+## Safe Skip Behavior
 
-- Multi-field declarations such as `private int a, b;` are skipped.
-- Static and const fields are skipped.
-- Complex generated code may not be recognized.
-- If the field type, initializer, and name all change at the same time, the extension may skip the edit.
+The extension intentionally skips ambiguous cases rather than adding a wrong migration attribute.
 
-These cases are skipped intentionally so the extension does not guess incorrectly.
+Skipped examples include:
 
-## Development
+- Non-serialized fields.
+- Static fields.
+- Const fields.
+- Multi-field declarations such as `private int a, b;`.
+- Cases where the field type, initializer, and name all change at the same time.
 
-Install dependencies:
+## Status Command
 
-```powershell
-npm install
-```
+Run `UnitySerializedShield: Show Status` from the Command Palette to confirm the extension is active.
 
-Compile the extension:
+## Learn More
 
-```powershell
-npm run compile
-```
+Documentation, source code, Unity package instructions, and issue tracking are available on GitHub:
 
-Run linting and automated tests:
+[AlphaBoysLab/unity-serialized-shield](https://github.com/AlphaBoysLab/unity-serialized-shield)
 
-```powershell
-npm test
-```
+## License
 
-Package a local VSIX:
-
-```powershell
-npm run package:vsix
-```
-
-The generated file will look like:
-
-```text
-unity-serialized-shield-1.0.3.vsix
-```
-
-## Contributing
-
-UnitySerializedShield is open source under the MIT license. Contributions are welcome.
-
-Good first contribution areas include:
-
-- Adding parser tests for more Unity field declaration styles.
-- Improving rename detection while keeping safe skip behavior.
-- Improving documentation and examples.
-- Testing the extension in real Unity projects and reporting edge cases.
-
-Before opening a pull request:
-
-1. Create a feature branch from the latest main branch.
-2. Keep the change focused on one fix or feature.
-3. Add or update tests when behavior changes.
-4. Run `npm test`.
-5. Update documentation if the user-facing behavior changes.
-
-For larger changes, please open an issue first and describe the problem you want to solve.
-
-## GitHub Releases
-
-To attach a VSIX to a GitHub Release manually:
-
-1. Update `version` in `package.json`.
-2. Update `CHANGELOG.md`.
-3. Run `npm test`.
-4. Run `npm run package:vsix`.
-5. Commit your changes and push to GitHub.
-6. Open your GitHub repository.
-7. Go to `Releases`.
-8. Select `Draft a new release`.
-9. Create a tag such as `v1.0.3`.
-10. Attach `unity-serialized-shield-1.0.3.vsix`.
-11. Publish the release.
-
-You can also create a release with the GitHub CLI:
-
-```powershell
-gh release create v1.0.3 .\unity-serialized-shield-1.0.3.vsix --title "UnitySerializedShield 1.0.3" --notes "Release 1.0.3."
-```
-
-This repository also includes a GitHub Actions workflow that can build and upload the VSIX to a release automatically when a GitHub Release is published.
-
-## Release Notes
-
-### 0.0.1
-
-Initial release of UnitySerializedShield.
+UnitySerializedShield is released under the MIT License.
