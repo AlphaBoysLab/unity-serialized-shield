@@ -51,7 +51,7 @@ https://github.com/AlphaBoysLab/unity-serialized-shield
 If this package is inside a repository subfolder, add the package path:
 
 ```text
-https://github.com/AlphaBoysLab/unity-serialized-shield/tree/main/unity-extension/UnitySerializedShield
+https://github.com/AlphaBoysLab/unity-serialized-shield.git?path=unity-extension/UnitySerializedShield
 ```
 
 ### Install Through manifest.json
