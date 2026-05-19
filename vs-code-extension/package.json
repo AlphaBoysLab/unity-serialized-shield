@@ -1,11 +1,16 @@
 {
   "name": "unity-serialized-shield",
   "displayName": "UnitySerializedShield",
-  "description": "Ensures seamless variable refactoring by automatically synchronizing renames across all source and serialized references.",
-  "version": "1.0.2",
+  "description": "Protects Unity serialized field renames with FormerlySerializedAs. Install the Unity package too before removing migration attributes.",
+  "version": "1.0.3",
   "icon": "images/icon.png",
   "publisher": "alphaboyslab",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AlphaBoysLab/unity-serialized-shield.git"
+  },
+  "homepage": "https://github.com/AlphaBoysLab/unity-serialized-shield",
   "pricing": "Free",
   "engines": {
     "vscode": "^1.118.0"
@@ -52,11 +57,15 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.19.19",
     "@types/vscode": "^1.118.0",
-    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.9.1",
     "eslint": "^9.39.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1"
+  },
+  "overrides": {
+    "diff": "9.0.0",
+    "serialize-javascript": "7.0.5"
   }
 }

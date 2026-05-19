@@ -1,8 +1,107 @@
+![UnitySerializedShield](Images/unity-serialized-shield.png)
+
 # UnitySerializedShield
 
 UnitySerializedShield helps Unity developers safely rename serialized C# fields without losing values already assigned in the Inspector, prefabs, scenes, or ScriptableObjects.
 
 When a Unity field marked with `[SerializeField]` is renamed, Unity no longer knows that the old serialized data belongs to the new field name. The normal fix is to add Unity's `[FormerlySerializedAs]` attribute before Unity reloads and drops the connection. UnitySerializedShield automates that protection in the editor tools developers already use.
+
+## Available In Your Editor
+
+UnitySerializedShield is available from both extension marketplaces:
+
+- **Visual Studio Marketplace**: install the Visual Studio extension for Unity projects opened in Visual Studio.
+- **Visual Studio Code Marketplace**: install the VS Code extension for Unity projects opened in Visual Studio Code.
+
+The easiest way to install is to open your editor's extension manager and search for:
+
+```text
+UnitySerializedShield
+```
+
+After installation, keep working normally. When you use the editor's real rename command on a Unity serialized field, UnitySerializedShield adds the correct `[FormerlySerializedAs]` attribute for you.
+
+## Quick Example
+
+Rename a serialized field with your editor rename tool:
+
+- Visual Studio: use **Rename** from the menu or press `Ctrl+R`.
+- Visual Studio Code: use **Rename Symbol** from the menu or press `F2`.
+
+Before rename:
+
+```csharp
+using UnityEngine;
+
+public sealed class EnemySensor : MonoBehaviour
+{
+    [SerializeField] private float maxDistance = 100f;
+}
+```
+
+After renaming `maxDistance` to `attackDistance`, UnitySerializedShield updates the script:
+
+```csharp
+using UnityEngine;
+using UnityEngine.Serialization;
+
+public sealed class EnemySensor : MonoBehaviour
+{
+    [FormerlySerializedAs("maxDistance")]
+    [SerializeField] private float attackDistance = 100f;
+}
+```
+
+Unity can now reconnect the old serialized value to the new field name.
+
+## Important: Do Not Manually Remove Migration Attributes
+
+After a rename, `[FormerlySerializedAs]` is the link Unity uses to move the old serialized value to the new field name. If you remove all `[FormerlySerializedAs]` attributes before Unity has migrated the data, Unity can lose Inspector references and serialized values in scenes, prefabs, and ScriptableObjects.
+
+For the safest workflow, install the UnitySerializedShield package inside Unity too. In this GitHub repository, the Unity package is not at the repository root. It is inside this subfolder:
+
+```text
+unity-extension/UnitySerializedShield
+```
+
+That folder contains the Unity Package Manager file:
+
+```text
+unity-extension/UnitySerializedShield/package.json
+```
+
+To install it from a downloaded copy of this repository:
+
+1. Open your Unity project.
+2. Go to `Window > Package Manager`.
+3. Click the `+` button.
+4. Choose `Add package from disk...`.
+5. Select `unity-extension/UnitySerializedShield/package.json` from this repository.
+6. Click `Open`.
+
+To install it directly from Git, use the repository URL with the package subfolder path:
+
+```text
+https://github.com/AlphaBoysLab/unity-serialized-shield.git?path=unity-extension/UnitySerializedShield
+```
+
+For the full Unity-side setup, usage, backup, and migration instructions, read the Unity package README:
+
+```text
+unity-extension/UnitySerializedShield/readme.md
+```
+
+The Unity package is made for the migration step inside Unity. When you run the migration workflow, it updates Unity serialized data so references stay connected, then it can remove the completed `[FormerlySerializedAs]` fields from your scripts automatically.
+
+![SerializedShield Migration](Images/SerializedShield%20Migration.png)
+
+Recommended workflow:
+
+1. Rename serialized fields in Visual Studio or VS Code.
+2. Let the editor extension add `[FormerlySerializedAs("oldName")]`.
+3. Open Unity with the UnitySerializedShield package installed.
+4. Run the SerializedShield migration workflow.
+5. Let the Unity package migrate the data and clean completed migration attributes.
 
 ## Why This Exists
 
@@ -24,34 +123,6 @@ That can mean:
 - bugs appear only after entering Play Mode or opening a scene
 
 UnitySerializedShield was created to reduce that day-to-day risk for Unity teams. It gives developers a small safety layer while refactoring gameplay scripts, UI controllers, enemy configs, level data, and other serialized MonoBehaviour or ScriptableObject fields.
-
-## Example
-
-Before rename:
-
-```csharp
-using UnityEngine;
-
-public sealed class EnemySensor : MonoBehaviour
-{
-    [SerializeField] private float maxDistance = 100f;
-}
-```
-
-After renaming `maxDistance` to `attackDistance`, UnitySerializedShield adds the migration attribute:
-
-```csharp
-using UnityEngine;
-using UnityEngine.Serialization;
-
-public sealed class EnemySensor : MonoBehaviour
-{
-    [FormerlySerializedAs("maxDistance")]
-    [SerializeField] private float attackDistance = 100f;
-}
-```
-
-Unity can now reconnect the old serialized value to the new field name.
 
 ## How It Helps Unity Developers
 
@@ -104,13 +175,22 @@ visual-studio-extension/UnitySerializedShield.VisualStudio/bin/Release/net8.0-wi
 
 ### Unity Editor Extension
 
-The Unity package provides Editor tooling for migration workflows inside Unity.
+The Unity package provides Editor tooling for migration workflows inside Unity. Use it after code-editor renames so Unity serialized data is migrated safely before completed `[FormerlySerializedAs]` attributes are removed.
 
 Folder:
 
 ```text
 unity-extension/UnitySerializedShield
 ```
+
+Important files:
+
+```text
+unity-extension/UnitySerializedShield/package.json
+unity-extension/UnitySerializedShield/readme.md
+```
+
+Follow the deeper instructions in `unity-extension/UnitySerializedShield/readme.md` before running migrations in a real Unity project.
 
 ## Supported Field Patterns
 

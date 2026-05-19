@@ -1,5 +1,27 @@
 # UnitySerializedShield Visual Studio Extension
 
+UnitySerializedShield is a Visual Studio extension for Unity C# projects. It helps protect Unity Inspector values when serialized fields are renamed by adding Unity's `[FormerlySerializedAs]` migration attribute.
+
+## Important Unity Migration Notice
+
+This extension protects the C# rename step, but Unity serialized data still needs to be migrated inside Unity. Do not manually remove all `[FormerlySerializedAs]` attributes before Unity has migrated the data. Removing them too early can cause Unity Inspector values, prefab references, scene references, or ScriptableObject data to be lost.
+
+For the safest workflow, also install the UnitySerializedShield Unity package from this repository:
+
+```text
+unity-extension/UnitySerializedShield/package.json
+```
+
+Install it in Unity with `Window > Package Manager > + > Add package from disk...`, then select the package file above. You can also install from Git:
+
+```text
+https://github.com/AlphaBoysLab/unity-serialized-shield.git?path=unity-extension/UnitySerializedShield
+```
+
+After renaming fields, open Unity and run the SerializedShield migration workflow. The Unity package migrates serialized data and can remove completed `[FormerlySerializedAs]` attributes after references are preserved.
+
+For full setup and migration instructions, visit the GitHub repository: [AlphaBoysLab/unity-serialized-shield](https://github.com/AlphaBoysLab/unity-serialized-shield)
+
 This folder contains the Visual Studio version of the existing VS Code extension.
 
 The VS Code extension already works by:

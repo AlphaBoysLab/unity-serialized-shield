@@ -4,6 +4,26 @@ UnitySerializedShield is a Visual Studio Code extension for Unity C# projects. I
 
 When a `[SerializeField]` field is renamed, UnitySerializedShield automatically adds Unity's `[FormerlySerializedAs]` migration attribute so Unity can reconnect the old serialized value to the new field name.
 
+## Important Unity Migration Notice
+
+This extension protects the C# rename step, but Unity serialized data still needs to be migrated inside Unity. Do not manually remove all `[FormerlySerializedAs]` attributes before Unity has migrated the data. Removing them too early can cause Unity Inspector values, prefab references, scene references, or ScriptableObject data to be lost.
+
+For the safest workflow, also install the UnitySerializedShield Unity package from this repository:
+
+```text
+unity-extension/UnitySerializedShield/package.json
+```
+
+Install it in Unity with `Window > Package Manager > + > Add package from disk...`, then select the package file above. You can also install from Git:
+
+```text
+https://github.com/AlphaBoysLab/unity-serialized-shield.git?path=unity-extension/UnitySerializedShield
+```
+
+After renaming fields, open Unity and run the SerializedShield migration workflow. The Unity package migrates serialized data and can remove completed `[FormerlySerializedAs]` attributes after references are preserved.
+
+For full setup and migration instructions, visit the GitHub repository: [AlphaBoysLab/unity-serialized-shield](https://github.com/AlphaBoysLab/unity-serialized-shield)
+
 ## Features
 
 - Watches C# files in Unity projects.
@@ -65,7 +85,7 @@ If you download a `.vsix` file from a GitHub Release:
 You can also install from the command line:
 
 ```powershell
-code --install-extension unity-serialized-shield-1.0.2.vsix
+code --install-extension unity-serialized-shield-1.0.3.vsix
 ```
 
 ## Supported Patterns
@@ -124,7 +144,7 @@ npm run package:vsix
 The generated file will look like:
 
 ```text
-unity-serialized-shield-1.0.2.vsix
+unity-serialized-shield-1.0.3.vsix
 ```
 
 ## Contributing
@@ -160,14 +180,14 @@ To attach a VSIX to a GitHub Release manually:
 6. Open your GitHub repository.
 7. Go to `Releases`.
 8. Select `Draft a new release`.
-9. Create a tag such as `v1.0.2`.
-10. Attach `unity-serialized-shield-1.0.2.vsix`.
+9. Create a tag such as `v1.0.3`.
+10. Attach `unity-serialized-shield-1.0.3.vsix`.
 11. Publish the release.
 
 You can also create a release with the GitHub CLI:
 
 ```powershell
-gh release create v1.0.2 .\unity-serialized-shield-1.0.2.vsix --title "UnitySerializedShield 1.0.2" --notes "Release 1.0.2."
+gh release create v1.0.3 .\unity-serialized-shield-1.0.3.vsix --title "UnitySerializedShield 1.0.3" --notes "Release 1.0.3."
 ```
 
 This repository also includes a GitHub Actions workflow that can build and upload the VSIX to a release automatically when a GitHub Release is published.

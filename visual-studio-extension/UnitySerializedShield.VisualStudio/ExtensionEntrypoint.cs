@@ -14,10 +14,10 @@ namespace UnitySerializedShield.VisualStudio
         {
             Metadata = new(
                     id: "UnitySerializedShield.VisualStudio.80229c4b-82bf-41ef-b409-98eaaaff3e1c",
-                    version: new Version(1, 0, 0),
+                    version: new Version(1, 0, 1),
                     publisherName: "AlphaBoysLab",
                     displayName: "UnitySerializedShield",
-                    description: "Protects Unity serialized fields when renamed in Visual Studio.")
+                    description: "Protects Unity serialized field renames. Install the Unity package too before removing migration attributes.")
             {
                 Icon = "Images/icon.png",
                 Tags = ["Unity", "C#", "SerializeField", "FormerlySerializedAs", "Refactoring"],
