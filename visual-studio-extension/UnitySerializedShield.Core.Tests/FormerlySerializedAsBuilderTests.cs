@@ -25,6 +25,25 @@ public class FormerlySerializedAsBuilderTests
     }
 
     [Fact]
+    public void ReportsRenamedSerializedFieldNames()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "",
+            "public class EnemySensor : MonoBehaviour",
+            "{",
+            "\t[SerializeField] private float maxDistance = 100f;",
+            "}",
+            "");
+        var currentText = previousText.Replace("maxDistance", "attackDistance", StringComparison.Ordinal);
+
+        var rename = Assert.Single(FormerlySerializedAsBuilder.FindRenamedSerializedFields(previousText, currentText));
+
+        Assert.Equal("maxDistance", rename.PreviousName);
+        Assert.Equal("attackDistance", rename.CurrentName);
+    }
+
+    [Fact]
     public void DoesNotAddDuplicateFormerlySerializedAsAttribute()
     {
         var previousText = string.Join('\n',

@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 
-import { buildFormerlySerializedAsEdits, TextInsertion } from '../formerlySerializedAs';
+import { buildFormerlySerializedAsEdits, findRenamedSerializedFields, TextInsertion } from '../formerlySerializedAs';
 
 suite('UnitySerializedShield', () => {
 	test('adds FormerlySerializedAs when a SerializeField variable is renamed', () => {
@@ -18,6 +18,24 @@ suite('UnitySerializedShield', () => {
 
 		assert.ok(updatedText.includes('using UnityEngine.Serialization;'));
 		assert.ok(updatedText.includes('[FormerlySerializedAs("maxDistance")]\n\t[SerializeField] private float attackDistance = 100f;'));
+	});
+
+	test('reports renamed serialized field names', () => {
+		const previousText = [
+			'using UnityEngine;',
+			'',
+			'public class EnemySensor : MonoBehaviour',
+			'{',
+			'	[SerializeField] private float maxDistance = 100f;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace('maxDistance', 'attackDistance');
+
+		const [rename] = findRenamedSerializedFields(previousText, currentText);
+
+		assert.strictEqual(rename.previousName, 'maxDistance');
+		assert.strictEqual(rename.currentName, 'attackDistance');
 	});
 
 	test('does not add a duplicate FormerlySerializedAs attribute', () => {

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { buildFormerlySerializedAsEdits } from './formerlySerializedAs';
+import { buildFormerlySerializedAsEdits, findRenamedSerializedFields } from './formerlySerializedAs';
 
 const documentSnapshots = new Map<string, string>();
 const documentsBeingUpdated = new Set<string>();
@@ -44,6 +44,10 @@ async function protectSerializedFieldRenames(event: vscode.TextDocumentChangeEve
 		return;
 	}
 
+	if (!isRenameCommandEdit(event, previousText, currentText)) {
+		return;
+	}
+
 	const insertions = buildFormerlySerializedAsEdits(previousText, currentText);
 
 	if (insertions.length === 0) {
@@ -64,6 +68,36 @@ async function protectSerializedFieldRenames(event: vscode.TextDocumentChangeEve
 	} finally {
 		documentsBeingUpdated.delete(documentKey);
 	}
+}
+
+function isRenameCommandEdit(event: vscode.TextDocumentChangeEvent, previousText: string, currentText: string) {
+	const renames = findRenamedSerializedFields(previousText, currentText);
+
+	if (renames.length === 0 || event.contentChanges.length === 0) {
+		return false;
+	}
+
+	const expectedRenames = new Set(renames.map((rename) => `${rename.previousName}\u0000${rename.currentName}`));
+	let changedSerializedFieldName = false;
+
+	for (const change of event.contentChanges) {
+		const previousName = previousText.slice(change.rangeOffset, change.rangeOffset + change.rangeLength);
+		const currentName = change.text;
+
+		if (!isIdentifier(previousName) || !isIdentifier(currentName)) {
+			return false;
+		}
+
+		if (expectedRenames.has(`${previousName}\u0000${currentName}`)) {
+			changedSerializedFieldName = true;
+		}
+	}
+
+	return changedSerializedFieldName;
+}
+
+function isIdentifier(text: string) {
+	return /^@?[A-Za-z_]\w*$/.test(text);
 }
 
 function rememberDocument(document: vscode.TextDocument) {

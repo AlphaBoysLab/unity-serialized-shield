@@ -9,26 +9,20 @@ public static class FormerlySerializedAsBuilder
 
     public static IReadOnlyList<TextInsertion> Build(string previousText, string currentText)
     {
-        var previousFields = UniqueFieldsByKey(SerializedFieldParser.Parse(previousText));
-        var currentFields = UniqueFieldsByKey(SerializedFieldParser.Parse(currentText));
+        var renames = FindRenamedSerializedFields(previousText, currentText);
         var endOfLine = TextUtils.DetectLineEnding(currentText);
         var insertions = new List<TextInsertion>();
 
-        foreach (var (key, previousField) in previousFields)
+        foreach (var rename in renames)
         {
-            if (!currentFields.TryGetValue(key, out var currentField) || currentField.Name == previousField.Name)
-            {
-                continue;
-            }
-
-            if (HasFormerlySerializedAs(currentField.AttributesText, previousField.SerializedName))
+            if (HasFormerlySerializedAs(rename.CurrentField.AttributesText, rename.PreviousSerializedName))
             {
                 continue;
             }
 
             insertions.Add(new TextInsertion(
-                currentField.InsertOffset,
-                $"{currentField.Indent}[FormerlySerializedAs(\"{TextUtils.EscapeCSharpString(previousField.SerializedName)}\")]{endOfLine}"));
+                rename.CurrentField.InsertOffset,
+                $"{rename.CurrentField.Indent}[FormerlySerializedAs(\"{TextUtils.EscapeCSharpString(rename.PreviousSerializedName)}\")]{endOfLine}"));
         }
 
         if (insertions.Count > 0 && !SerializationUsingPattern.IsMatch(currentText))
@@ -39,6 +33,30 @@ public static class FormerlySerializedAsBuilder
         }
 
         return insertions;
+    }
+
+    public static IReadOnlyList<SerializedFieldRename> FindRenamedSerializedFields(string previousText, string currentText)
+    {
+        var previousFields = UniqueFieldsByKey(SerializedFieldParser.Parse(previousText));
+        var currentFields = UniqueFieldsByKey(SerializedFieldParser.Parse(currentText));
+        var renames = new List<SerializedFieldRename>();
+
+        foreach (var (key, previousField) in previousFields)
+        {
+            if (!currentFields.TryGetValue(key, out var currentField) || currentField.Name == previousField.Name)
+            {
+                continue;
+            }
+
+            renames.Add(new SerializedFieldRename(
+                previousField.Name,
+                previousField.SerializedName,
+                currentField.Name,
+                currentField.SerializedName,
+                currentField));
+        }
+
+        return renames;
     }
 
     public static string ApplyInsertions(string text, IEnumerable<TextInsertion> insertions)
@@ -100,3 +118,10 @@ public static class FormerlySerializedAsBuilder
         return lastUsingEndOffset ?? insertOffset;
     }
 }
+
+public sealed record SerializedFieldRename(
+    string PreviousName,
+    string PreviousSerializedName,
+    string CurrentName,
+    string CurrentSerializedName,
+    SerializedField CurrentField);

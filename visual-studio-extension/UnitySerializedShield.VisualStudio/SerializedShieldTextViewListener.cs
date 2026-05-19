@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Microsoft.VisualStudio.Extensibility;
 using Microsoft.VisualStudio.Extensibility.Editor;
 using UnitySerializedShield.Core;
@@ -83,6 +84,12 @@ internal sealed class SerializedShieldTextViewListener :
             return;
         }
 
+        if (!IsRenameCommandEdit(args.Edits, previousText, currentText))
+        {
+            lastChangeSummary = "Ignored non-rename text edit.";
+            return;
+        }
+
         var insertions = FormerlySerializedAsBuilder.Build(previousText, currentText);
         lastChangeSummary = $"Change observed. Insertions needed: {insertions.Count}.";
 
@@ -136,5 +143,46 @@ internal sealed class SerializedShieldTextViewListener :
 
         documentKey = textView.Uri?.ToString() ?? filePath;
         return true;
+    }
+
+    private static bool IsRenameCommandEdit(
+        IReadOnlyList<TextEdit> edits,
+        string previousText,
+        string currentText)
+    {
+        var renames = FormerlySerializedAsBuilder.FindRenamedSerializedFields(previousText, currentText);
+
+        if (renames.Count == 0 || edits.Count == 0)
+        {
+            return false;
+        }
+
+        var expectedRenames = renames
+            .Select(rename => (rename.PreviousName, rename.CurrentName))
+            .ToHashSet();
+        var changedSerializedFieldName = false;
+
+        foreach (var edit in edits)
+        {
+            var previousName = edit.Range.CopyToString();
+            var currentName = edit.Text;
+
+            if (!IsIdentifier(previousName) || !IsIdentifier(currentName))
+            {
+                return false;
+            }
+
+            if (expectedRenames.Contains((previousName, currentName)))
+            {
+                changedSerializedFieldName = true;
+            }
+        }
+
+        return changedSerializedFieldName;
+    }
+
+    private static bool IsIdentifier(string text)
+    {
+        return Regex.IsMatch(text, @"^@?[A-Za-z_]\w*$");
     }
 }

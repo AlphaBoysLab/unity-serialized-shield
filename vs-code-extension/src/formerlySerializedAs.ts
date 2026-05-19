@@ -13,26 +13,27 @@ export type { TextInsertion } from './textUtils';
 const serializationUsing = 'using UnityEngine.Serialization;';
 const serializationUsingPattern = /\b(?:global\s+)?using\s+UnityEngine\.Serialization\s*;/;
 
+export type SerializedFieldRename = {
+	previousName: string;
+	previousSerializedName: string;
+	currentName: string;
+	currentSerializedName: string;
+	currentField: SerializedField;
+};
+
 export function buildFormerlySerializedAsEdits(previousText: string, currentText: string): TextInsertion[] {
-	const previousFields = uniqueFieldsByKey(parseSerializedFields(previousText));
-	const currentFields = uniqueFieldsByKey(parseSerializedFields(currentText));
+	const renames = findRenamedSerializedFields(previousText, currentText);
 	const eol = detectLineEnding(currentText);
 	const insertions: TextInsertion[] = [];
 
-	for (const [key, previousField] of previousFields) {
-		const currentField = currentFields.get(key);
-
-		if (!currentField || currentField.name === previousField.name) {
-			continue;
-		}
-
-		if (hasFormerlySerializedAs(currentField.attributesText, previousField.serializedName)) {
+	for (const rename of renames) {
+		if (hasFormerlySerializedAs(rename.currentField.attributesText, rename.previousSerializedName)) {
 			continue;
 		}
 
 		insertions.push({
-			offset: currentField.insertOffset,
-			text: `${currentField.indent}[FormerlySerializedAs("${escapeCsharpString(previousField.serializedName)}")]${eol}`,
+			offset: rename.currentField.insertOffset,
+			text: `${rename.currentField.indent}[FormerlySerializedAs("${escapeCsharpString(rename.previousSerializedName)}")]${eol}`,
 		});
 	}
 
@@ -44,6 +45,30 @@ export function buildFormerlySerializedAsEdits(previousText: string, currentText
 	}
 
 	return insertions;
+}
+
+export function findRenamedSerializedFields(previousText: string, currentText: string): SerializedFieldRename[] {
+	const previousFields = uniqueFieldsByKey(parseSerializedFields(previousText));
+	const currentFields = uniqueFieldsByKey(parseSerializedFields(currentText));
+	const renames: SerializedFieldRename[] = [];
+
+	for (const [key, previousField] of previousFields) {
+		const currentField = currentFields.get(key);
+
+		if (!currentField || currentField.name === previousField.name) {
+			continue;
+		}
+
+		renames.push({
+			previousName: previousField.name,
+			previousSerializedName: previousField.serializedName,
+			currentName: currentField.name,
+			currentSerializedName: currentField.serializedName,
+			currentField,
+		});
+	}
+
+	return renames;
 }
 
 function uniqueFieldsByKey(fields: SerializedField[]) {
