@@ -15,6 +15,11 @@ public static class FormerlySerializedAsBuilder
 
         foreach (var rename in renames)
         {
+            if (rename.PreviousSerializedName == rename.CurrentSerializedName)
+            {
+                continue;
+            }
+
             if (HasFormerlySerializedAs(rename.CurrentField.AttributesText, rename.PreviousSerializedName))
             {
                 continue;
@@ -37,23 +42,36 @@ public static class FormerlySerializedAsBuilder
 
     public static IReadOnlyList<SerializedFieldRename> FindRenamedSerializedFields(string previousText, string currentText)
     {
-        var previousFields = UniqueFieldsByKey(SerializedFieldParser.Parse(previousText));
-        var currentFields = UniqueFieldsByKey(SerializedFieldParser.Parse(currentText));
+        var previousFields = FieldsByKey(SerializedFieldParser.Parse(previousText));
+        var currentFields = FieldsByKey(SerializedFieldParser.Parse(currentText));
         var renames = new List<SerializedFieldRename>();
 
-        foreach (var (key, previousField) in previousFields)
+        foreach (var (key, previousGroup) in previousFields)
         {
-            if (!currentFields.TryGetValue(key, out var currentField) || currentField.Name == previousField.Name)
+            if (!currentFields.TryGetValue(key, out var currentGroup)
+                || currentGroup.Count != previousGroup.Count)
             {
                 continue;
             }
 
-            renames.Add(new SerializedFieldRename(
-                previousField.Name,
-                previousField.SerializedName,
-                currentField.Name,
-                currentField.SerializedName,
-                currentField));
+            for (var index = 0; index < previousGroup.Count; index++)
+            {
+                var previousField = previousGroup[index];
+                var currentField = currentGroup[index];
+
+                if (currentField.Name == previousField.Name
+                    || currentField.SerializedName == previousField.SerializedName)
+                {
+                    continue;
+                }
+
+                renames.Add(new SerializedFieldRename(
+                    previousField.Name,
+                    previousField.SerializedName,
+                    currentField.Name,
+                    currentField.SerializedName,
+                    currentField));
+            }
         }
 
         return renames;
@@ -67,13 +85,11 @@ public static class FormerlySerializedAsBuilder
                 updatedText.Insert(insertion.Offset, insertion.Text));
     }
 
-    private static Dictionary<string, SerializedField> UniqueFieldsByKey(IEnumerable<SerializedField> fields)
+    private static Dictionary<string, List<SerializedField>> FieldsByKey(IEnumerable<SerializedField> fields)
     {
-        var groupedFields = fields
+        return fields
             .GroupBy(field => field.Key)
-            .Where(group => group.Count() == 1);
-
-        return groupedFields.ToDictionary(group => group.Key, group => group.Single());
+            .ToDictionary(group => group.Key, group => group.ToList());
     }
 
     private static bool HasFormerlySerializedAs(string attributesText, string previousName)

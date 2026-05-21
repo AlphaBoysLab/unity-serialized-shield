@@ -42,6 +42,7 @@ internal static class TextUtils
     public static string StripLineComment(string line)
     {
         var inString = false;
+        var inVerbatimString = false;
         var inChar = false;
         var escaped = false;
 
@@ -49,6 +50,24 @@ internal static class TextUtils
         {
             var character = line[index];
             var nextCharacter = line[index + 1];
+
+            if (inVerbatimString)
+            {
+                // Verbatim strings use "" to escape a quote; everything else is literal.
+                if (character == '"')
+                {
+                    if (nextCharacter == '"')
+                    {
+                        index++; // skip the escaped quote
+                    }
+                    else
+                    {
+                        inVerbatimString = false;
+                    }
+                }
+
+                continue;
+            }
 
             if (escaped)
             {
@@ -71,6 +90,14 @@ internal static class TextUtils
             if (character == '\'' && !inString)
             {
                 inChar = !inChar;
+                continue;
+            }
+
+            // Detect verbatim string start: @" outside of strings and chars.
+            if (!inString && !inChar && character == '@' && nextCharacter == '"')
+            {
+                inVerbatimString = true;
+                index++; // skip the opening quote
                 continue;
             }
 

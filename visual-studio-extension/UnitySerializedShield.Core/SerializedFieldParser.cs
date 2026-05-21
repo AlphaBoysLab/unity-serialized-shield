@@ -55,7 +55,7 @@ public static class SerializedFieldParser
 
         if (declarationBeforeInitializer.Contains('(', StringComparison.Ordinal)
             || declarationBeforeInitializer.Contains('{', StringComparison.Ordinal)
-            || declarationBeforeInitializer.Contains(',', StringComparison.Ordinal))
+            || HasCommaOutsideAngleBrackets(declarationBeforeInitializer))
         {
             return null;
         }
@@ -123,5 +123,27 @@ public static class SerializedFieldParser
         var match = LeadingAttributesPattern.Match(line);
 
         return match.Success ? match.Value : string.Empty;
+    }
+
+    private static bool HasCommaOutsideAngleBrackets(string text)
+    {
+        var depth = 0;
+
+        foreach (var character in text)
+        {
+            switch (character)
+            {
+                case '<':
+                    depth++;
+                    break;
+                case '>':
+                    if (depth > 0) depth--;
+                    break;
+                case ',' when depth == 0:
+                    return true;
+            }
+        }
+
+        return false;
     }
 }

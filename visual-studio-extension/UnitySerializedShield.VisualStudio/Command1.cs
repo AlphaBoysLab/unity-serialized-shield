@@ -44,8 +44,16 @@ namespace UnitySerializedShield.VisualStudio
         /// <inheritdoc />
         public override async Task ExecuteCommandAsync(IClientContext context, CancellationToken cancellationToken)
         {
+            var version = typeof(Command1).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+            var logPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "UnitySerializedShield",
+                "VisualStudioExtension.log");
+
             await this.Extensibility.Shell().ShowPromptAsync(
-                "UnitySerializedShield is watching Unity serialized field renames in C# files.",
+                $"UnitySerializedShield {version} is loaded.\n\n"
+                + $"{SerializedShieldTextViewListener.Diagnostics}\n\n"
+                + $"Log: {logPath}",
                 PromptOptions.OK,
                 cancellationToken);
         }

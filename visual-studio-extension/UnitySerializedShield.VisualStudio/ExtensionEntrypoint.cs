@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.Extensibility;
 
 namespace UnitySerializedShield.VisualStudio
@@ -14,7 +14,7 @@ namespace UnitySerializedShield.VisualStudio
         {
             Metadata = new(
                     id: "UnitySerializedShield.VisualStudio.80229c4b-82bf-41ef-b409-98eaaaff3e1c",
-                    version: new Version(1, 0, 1),
+                    version: new Version(1, 0, 27),
                     publisherName: "AlphaBoysLab",
                     displayName: "UnitySerializedShield",
                     description: "Protects Unity serialized field renames. Install the Unity package too before removing migration attributes.")
