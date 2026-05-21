@@ -2,7 +2,7 @@
   "name": "unity-serialized-shield",
   "displayName": "UnitySerializedShield",
   "description": "Protects Unity serialized field renames with FormerlySerializedAs. Install the Unity package too before removing migration attributes.",
-  "version": "1.0.3",
+  "version": "1.0.12",
   "icon": "images/icon.png",
   "publisher": "alphaboyslab",
   "license": "MIT",
@@ -38,10 +38,25 @@
   "contributes": {
     "commands": [
       {
+        "command": "UnitySerializedShield.renameSerializedField",
+        "title": "Rename Serialized Field",
+        "category": "UnitySerializedShield"
+      },
+      {
         "command": "UnitySerializedShield.showStatus",
-        "title": "UnitySerializedShield: Show Status"
+        "title": "Show Status",
+        "category": "UnitySerializedShield"
       }
-    ]
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "UnitySerializedShield.renameSerializedField",
+          "when": "resourceLangId == csharp",
+          "group": "1_modification@1"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

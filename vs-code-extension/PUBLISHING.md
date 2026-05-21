@@ -36,7 +36,7 @@ npm run package:vsix
 This creates:
 
 ```text
-unity-serialized-shield-1.0.3.vsix
+unity-serialized-shield-1.0.12.vsix
 ```
 
 ## Publish From Terminal
@@ -60,7 +60,7 @@ You can also upload the VSIX manually:
 1. Open https://marketplace.visualstudio.com/manage/publishers/
 2. Select your publisher.
 3. Choose the option to add/upload an extension.
-4. Upload `unity-serialized-shield-1.0.3.vsix`.
+4. Upload `unity-serialized-shield-1.0.12.vsix`.
 
 ## Before Each Release
 
@@ -77,14 +77,14 @@ Manual release:
 2. Open the GitHub repository.
 3. Go to `Releases`.
 4. Select `Draft a new release`.
-5. Create a tag such as `v1.0.3`.
-6. Attach `unity-serialized-shield-1.0.3.vsix`.
+5. Create a tag such as `v1.0.12`.
+6. Attach `unity-serialized-shield-1.0.12.vsix`.
 7. Publish the release.
 
 GitHub CLI release:
 
 ```powershell
-gh release create v1.0.3 .\unity-serialized-shield-1.0.3.vsix --title "UnitySerializedShield 1.0.3" --notes "Release 1.0.3."
+gh release create v1.0.12 .\unity-serialized-shield-1.0.12.vsix --title "UnitySerializedShield 1.0.12" --notes "Release 1.0.12."
 ```
 
 Automatic release asset upload:
