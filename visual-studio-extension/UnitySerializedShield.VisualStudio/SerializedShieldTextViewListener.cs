@@ -118,7 +118,8 @@ internal sealed class SerializedShieldTextViewListener :
         // rather than incremental character-by-character typing.
         var bulkEdit = IsBulkIdentifierEdit(eventBeforeText, currentText) || args.Edits.Count > 1;
         var renameCommandEdit = IsWholeSerializedFieldIdentifierEdit(args.Edits, renames)
-            || IsSerializedFieldNumericSuffixRename(args.Edits, renames);
+            || IsSerializedFieldNumericSuffixRename(args.Edits, renames)
+            || IsSerializedFieldUnityPrefixCleanupRename(renames);
 
         var renameSignature = BuildRenameSignature(renames);
         var operation = QueuePendingRename(documentKey, baselineText, renameSignature, bulkEdit, renameCommandEdit);
@@ -283,7 +284,7 @@ internal sealed class SerializedShieldTextViewListener :
         IReadOnlyList<TextEdit> edits,
         IReadOnlyList<SerializedFieldRename> renames)
     {
-        if (edits.Count == 0 || renames.Count != 1)
+        if (renames.Count != 1)
         {
             return false;
         }
@@ -292,10 +293,7 @@ internal sealed class SerializedShieldTextViewListener :
 
         if (IsAddedNumericSuffix(rename.PreviousName, rename.CurrentName))
         {
-            return edits.All(edit =>
-                edit.Range.CopyToString() == string.Empty
-                || edit.Text == rename.CurrentName[rename.PreviousName.Length..]
-                || rename.CurrentName[rename.PreviousName.Length..].Contains(edit.Text, StringComparison.Ordinal));
+            return true;
         }
 
         if (TrySplitNumericSuffix(rename.PreviousName, out var previousBaseName, out var previousNumber)
@@ -303,19 +301,42 @@ internal sealed class SerializedShieldTextViewListener :
             && previousBaseName == currentBaseName
             && previousNumber != currentNumber)
         {
-            return edits.All(edit =>
-                edit.Range.CopyToString() == previousNumber
-                || edit.Text == currentNumber
-                || currentNumber.Contains(edit.Text, StringComparison.Ordinal));
+            return true;
         }
 
         return false;
+    }
+
+    private static bool IsSerializedFieldUnityPrefixCleanupRename(
+        IReadOnlyList<SerializedFieldRename> renames)
+    {
+        if (renames.Count != 1)
+        {
+            return false;
+        }
+
+        var rename = renames[0];
+
+        return TryRemoveUnityPrivatePrefix(rename.PreviousName, out var unprefixedName)
+            && rename.CurrentName == unprefixedName;
     }
 
     private static bool IsAddedNumericSuffix(string previousName, string currentName)
     {
         return currentName.StartsWith(previousName, StringComparison.Ordinal)
             && Regex.IsMatch(currentName[previousName.Length..], @"^_\d+$");
+    }
+
+    private static bool TryRemoveUnityPrivatePrefix(string name, out string unprefixedName)
+    {
+        if (name.StartsWith("m_", StringComparison.Ordinal) && name.Length > 2)
+        {
+            unprefixedName = name[2..];
+            return true;
+        }
+
+        unprefixedName = string.Empty;
+        return false;
     }
 
     private static bool TrySplitNumericSuffix(string name, out string baseName, out string number)

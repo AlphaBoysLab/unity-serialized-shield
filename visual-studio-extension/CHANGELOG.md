@@ -2,6 +2,17 @@
 
 All notable changes to UnitySerializedShield Visual Studio will be documented in this file.
 
+## 1.0.29
+
+- Detects Unity private field prefix cleanup renames such as `m_PlayerName` to `PlayerName`.
+- Keeps .NET 10 VSIX metadata so the packaged extension declares `net10.0` support.
+
+## 1.0.28
+
+- Improves numeric suffix rename detection for final field names such as `playerName` to `playerName_2` and `m_playerLevel` to `m_playerLevel_1`.
+- Adds test coverage for Unity-style private fields with `m_` prefixes.
+- Retargets the Visual Studio extension projects to .NET 10.
+
 ## 1.0.27
 
 - Detects Rename Symbol numeric suffix changes such as `enemyName_1` to `enemyName_3` and `velocity_1` to `velocity_2`.
