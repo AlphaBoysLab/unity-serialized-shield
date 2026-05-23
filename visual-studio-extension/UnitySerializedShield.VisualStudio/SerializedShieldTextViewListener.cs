@@ -14,8 +14,8 @@ internal sealed class SerializedShieldTextViewListener :
     ITextViewChangedListener
 {
     private const int RenameSettleDelayMilliseconds = 400;
-    private const int RenameCommandApplyDelayMilliseconds = 500;
-    private const int PrefixRenameApplyDelayMilliseconds = 650;
+    private const int RenameCommandApplyDelayMilliseconds = 50;
+    private const int PrefixRenameApplyDelayMilliseconds = 100;
     private const int PostInsertVerificationDelayMilliseconds = 900;
     private static readonly ConcurrentDictionary<string, string> DocumentSnapshots = new();
     private static readonly ConcurrentDictionary<string, byte> DocumentsBeingUpdated = new();
@@ -538,9 +538,8 @@ internal sealed class SerializedShieldTextViewListener :
             DocumentSnapshots[documentKey] = updatedText;
             LastAppliedEditTimes[documentKey] = DateTimeOffset.UtcNow;
             Interlocked.Increment(ref protectedRenameCount);
-            await SaveDocumentAsync(textView, documentKey);
-            lastChangeSummary = $"Applied {insertions.Count} insertion(s) and {removals.Count} cleanup removal(s) and saved the document.";
-            WriteDiagnostic($"{documentKey}: applied {insertions.Count} insertion(s) and {removals.Count} cleanup removal(s) and saved the document.");
+            lastChangeSummary = $"Applied {insertions.Count} insertion(s) and {removals.Count} cleanup removal(s). Document remains unsaved for normal user undo/save behavior.";
+            WriteDiagnostic($"{documentKey}: applied {insertions.Count} insertion(s) and {removals.Count} cleanup removal(s). Document remains unsaved.");
             _ = VerifySavedMigrationAsync(textView, documentKey, baselineText);
         }
         finally
@@ -654,9 +653,8 @@ internal sealed class SerializedShieldTextViewListener :
 
                 DocumentSnapshots[documentKey] = repairedText;
                 LastAppliedEditTimes[documentKey] = DateTimeOffset.UtcNow;
-                await SaveDocumentAsync(documentUri, documentKey);
-                lastChangeSummary = $"Repaired {missingInsertions.Count} missing insertion(s) and {selfRemovals.Count} removal(s) after Visual Studio rename settled.";
-                WriteDiagnostic($"{documentKey}: repaired {missingInsertions.Count} missing insertion(s) and {selfRemovals.Count} removal(s) after post-insert verification.");
+                lastChangeSummary = $"Repaired {missingInsertions.Count} missing insertion(s) and {selfRemovals.Count} removal(s) after Visual Studio rename settled. Document remains unsaved.";
+                WriteDiagnostic($"{documentKey}: repaired {missingInsertions.Count} missing insertion(s) and {selfRemovals.Count} removal(s) after post-insert verification. Document remains unsaved.");
             }
             finally
             {
