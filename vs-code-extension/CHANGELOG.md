@@ -2,6 +2,12 @@
 
 All notable changes to UnitySerializedShield will be documented in this file.
 
+## 1.0.19
+
+- Implements focus-based active editor snapshotting and visible editor pre-population to guarantee baseline snapshots are always fresh.
+- Introduces a robust disk-fallback baseline recovery mechanism inside the passive change listener. If a background document is loaded on the fly during a solution-wide rename and lacks an in-memory snapshot, we automatically read the pre-rename baseline from the clean file on disk (since the unsaved editor buffer contains the renamed text).
+- Cleans up internal diagnostic logging for the production release.
+
 ## 1.0.17
 
 - Fixes critical VS Code baseline loss issue caused by background tab garbage collection. When solution-wide F2 renames are executed, background documents are loaded on the fly, triggering open events. We now preserve baseline snapshots across background close events and only overwrite them if documents are not dirty, preventing baseline corruption.

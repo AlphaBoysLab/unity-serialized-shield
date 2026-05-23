@@ -249,8 +249,6 @@ function isValidRenameEdit(
 		const replacedText = previousText.slice(change.rangeOffset, change.rangeOffset + change.rangeLength);
 		const newText = change.text;
 
-		writeDiagnostic(`isValidRenameEdit: replacedText="${replacedText}" (isId=${isIdentifier(replacedText)}), newText="${newText}" (isId=${isIdentifier(newText)}), expectedRenames=${JSON.stringify([...expectedRenames])}`);
-
 		// Skip formatting changes.
 		if (!isIdentifier(replacedText) || !isIdentifier(newText)) {
 			continue;
