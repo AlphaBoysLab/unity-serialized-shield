@@ -1,6 +1,6 @@
 {
   "name": "com.alphaboyslab.unity-serialized-shield",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "displayName": "Unity Serialized Shield",
   "description": "Safely migrate renamed Unity serialized fields with an Editor migration window.",
   "unity": "6000.3",

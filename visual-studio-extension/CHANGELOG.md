@@ -2,6 +2,104 @@
 
 All notable changes to UnitySerializedShield Visual Studio will be documented in this file.
 
+## 1.0.50
+
+- Resolves a critical race condition where Visual Studio's `Rename Symbol` engine would trigger a spurious reverse-rename event (e.g. `m_PlayerLevel223 -> m_PlayerLevel1`) immediately after our programmatic attribute insertion. Implemented a thread-safe `LastAppliedEditTimes` timestamp cache to discard any editor events within a 1000ms cool-down window of our edits, while updating current snapshots.
+- Fully integrates self-referential attribute cleanups (`BuildSelfAttributeRemovals`) in both the rename commit (`ApplyPendingRenameAsync`) and settle (`VerifySavedMigrationAsync`) phases of the Visual Studio listener, ensuring that renaming a field back to its old name cleans up any redundant attributes.
+- Increases the Rename Symbol apply settle delay to 500ms to allow Visual Studio's editor engine to stabilize.
+
+## 1.0.49
+
+- Fixes a critical Visual Studio edit-overlap issue where self-referential attribute cleanups (e.g. `[FormerlySerializedAs("m_PlayerLevel1")]` on a field named `m_PlayerLevel1`) were ignored or failed when applied in the same transaction as a new attribute insertion.
+- Adjusts insertion offsets dynamically in `ApplyEditsAsync` when they coincide with a removal offset, ensuring both actions succeed perfectly.
+
+## 1.0.48
+
+- Removes the restriction blocking incremental (character-by-character) serialized field renames on fields that already have `[FormerlySerializedAs]` attributes.
+- Allows chaining multiple `[FormerlySerializedAs]` attributes naturally for sequential renames, matching the professional refactoring experience of Rider IDE.
+
+## 1.0.47
+
+- Fixes pending rename operations being cancelled when the user renames a second field before the first rename has been applied.
+- Computes event-level renames from the actual event before-text instead of the cached snapshot, so classification functions correctly see only the current event's changes.
+- Carries forward a confirmed rename flag from pending operations so subsequent edits in the same file do not discard an already-confirmed rename.
+
+## 1.0.46
+
+- Fixes baseline shifting during incremental and consecutive field renames, ensuring original field names are correctly preserved.
+- Prevents invalid self-referential attribute insertions (like `[FormerlySerializedAs("m_EnemyName1")]` above `m_EnemyName1`) and ensures `[FormerlySerializedAs]` attributes on other fields are not lost during multi-field renames.
+- Utilizes precise event-level diffing (`currentEventRenames`) for accurate small-rename classification.
+
+## 1.0.45
+
+- Expands the guarded small `Ctrl+R, Ctrl+R` rename fallback to cover two-character Unity prefix changes such as `m_PlayerName` to `PlayerName`.
+- Keeps suffix and underscore small rename support for cases such as `m_EnemyName` to `m_EnemyName1`, while still blocking repeated chains on fields that already have migration attributes.
+
+## 1.0.44
+
+- Restores support for `Ctrl+R, Ctrl+R` one-character serialized field renames such as `m_PlayerName` to `m_PlayerName1`, `m_PlayerLevel` to `m_PlayerLevel_`, and `m_EnemyName` to `m_EnemyName1`.
+- Blocks this small-rename fallback on fields that already have `[FormerlySerializedAs]`, preventing repeated attribute chains while editing migrated fields.
+
+## 1.0.43
+
+- Stops treating ordinary single-character typing inside serialized field names as a rename command.
+- Requires a whole-identifier or bulk Rename Symbol style edit before adding `[FormerlySerializedAs]`, preventing long attribute chains while the user types.
+
+## 1.0.42
+
+- Removes self-referential `[FormerlySerializedAs]` attributes such as `[FormerlySerializedAs("PlayerLevel1")]` above `PlayerLevel1`.
+- Allows `_PlayerLevel1` to `PlayerLevel1` and similar prefix-removal renames to add the real previous serialized name while cleaning stale self attributes.
+
+## 1.0.41
+
+- Uses Visual Studio's immediate before-text as the baseline for new renames after Unity migration cleanup, fixing cases such as `EdnemyName3` to `m_EnemyName`.
+- Keeps cached snapshots only while a rename operation is actively pending.
+
+## 1.0.40
+
+- Refreshes stale document baselines after Unity migration cleanup so `m_PlayerName1` to `_PlayerName1` records `m_PlayerName1`, not a self-reference.
+
+## 1.0.39
+
+- Adds a settled single-character rename candidate path for Rename Symbol edits such as `EnemyName2` to `EdnemyName2`.
+
+## 1.0.38
+
+- Detects affix insertion/deletion rename shapes such as `sEnemyName1` to `_sEnemyName1`.
+
+## 1.0.37
+
+- Advances the rename baseline after inserting migration attributes so chained renames use the latest field name, such as `sEnemyName1` to `_sEnemyName1`.
+
+## 1.0.36
+
+- Broadens Rename Symbol rename coverage for prefix, suffix, middle, casing, underscore, and mixed Unity field rename styles.
+
+## 1.0.35
+
+- Detects prefix-fragment Rename Symbol changes such as `m_EnemyName` to `sEnemyName`.
+
+## 1.0.34
+
+- Detects plain trailing-number changes such as `ShahriarPlayerName1` to `ShahriarPlayerName2`.
+
+## 1.0.33
+
+- Prevents invalid self-referential migration attributes such as `[FormerlySerializedAs("m_EnemyName_th")]` above `m_EnemyName_th`.
+
+## 1.0.32
+
+- Detects plain numeric suffix Rename Symbol changes such as `ShahriarPlayerName` to `ShahriarPlayerName1`.
+
+## 1.0.31
+
+- Detects Rename Symbol changes from any serialized field to a very different valid field name, such as `playerName` to `ShahriarPlayerName`.
+
+## 1.0.30
+
+- Detects Rename Symbol changes from Unity `m_` private fields to arbitrary valid field names such as `m_PlayerName` to `_ShahriarplayerName`.
+- Stops auto-saving files after inserting `[FormerlySerializedAs]`; the document remains dirty so users can undo or save normally.
+
 ## 1.0.29
 
 - Detects Unity private field prefix cleanup renames such as `m_PlayerName` to `PlayerName`.

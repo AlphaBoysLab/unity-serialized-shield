@@ -10,6 +10,14 @@ namespace AlphaBoysLab.SerializedShield.Editor
         public string ScriptGuid;
         public int AttributeCount;
         public List<string> FormerNames = new List<string>();
+        public List<SerializedShieldFieldMigration> FieldMigrations = new List<SerializedShieldFieldMigration>();
+    }
+
+    [Serializable]
+    public sealed class SerializedShieldFieldMigration
+    {
+        public string CurrentName;
+        public List<string> FormerNames = new List<string>();
     }
 
     [Serializable]
@@ -29,6 +37,8 @@ namespace AlphaBoysLab.SerializedShield.Editor
         public string BackupSessionPath;
         public int ReserializedAssetCount;
         public int RemovedAttributeCount;
+        public int TextMigratedAssetCount;
+        public int TextMigratedFieldCount;
         public List<string> TargetAssetPaths = new List<string>();
     }
 

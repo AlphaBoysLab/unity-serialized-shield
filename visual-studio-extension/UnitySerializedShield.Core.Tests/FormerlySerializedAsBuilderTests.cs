@@ -44,6 +44,26 @@ public class FormerlySerializedAsBuilderTests
     }
 
     [Fact]
+    public void HandlesRenameToVeryDifferentSerializedFieldName()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[SerializeField] private string playerName;",
+            "}",
+            "");
+        var currentText = previousText.Replace("playerName", "ShahriarPlayerName", StringComparison.Ordinal);
+        var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(
+            currentText,
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.Contains("[FormerlySerializedAs(\"playerName\")]\n\t[SerializeField] private string ShahriarPlayerName;", updatedText);
+    }
+
+    [Fact]
     public void DoesNotAddDuplicateFormerlySerializedAsAttribute()
     {
         var previousText = string.Join('\n',
@@ -61,6 +81,38 @@ public class FormerlySerializedAsBuilderTests
             StringComparison.Ordinal);
 
         Assert.Empty(FormerlySerializedAsBuilder.Build(previousText, currentText));
+    }
+
+    [Fact]
+    public void AddsPreviousNameWhenCurrentFieldHasSelfFormerlySerializedAsAttribute()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[SerializeField] private string m_EnemyName;",
+            "}",
+            "");
+        var currentText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[FormerlySerializedAs(\"m_EnemyName_th\")]",
+            "\t[SerializeField] private string m_EnemyName_th;",
+            "}",
+            "");
+
+        var updatedText = FormerlySerializedAsBuilder.ApplyEdits(
+            currentText,
+            FormerlySerializedAsBuilder.BuildSelfAttributeRemovals(currentText),
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.DoesNotContain("[FormerlySerializedAs(\"m_EnemyName_th\")]", updatedText);
+        Assert.Contains("[FormerlySerializedAs(\"m_EnemyName\")]", updatedText);
     }
 
     [Fact]
@@ -192,6 +244,200 @@ public class FormerlySerializedAsBuilderTests
     }
 
     [Fact]
+    public void HandlesUnityBackingFieldRenameToUnderscorePrefixedName()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[SerializeField] private string m_PlayerName;",
+            "}",
+            "");
+        var currentText = previousText.Replace("m_PlayerName", "_ShahriarplayerName", StringComparison.Ordinal);
+        var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(
+            currentText,
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.Contains("[FormerlySerializedAs(\"m_PlayerName\")]\n\t[SerializeField] private string _ShahriarplayerName;", updatedText);
+    }
+
+    [Fact]
+    public void HandlesUnityBackingFieldRenameToUnderscorePrefixedNameAfterMigrationCleanup()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[SerializeField] private string m_PlayerName1;",
+            "\t[SerializeField] private int PlayerLevel10;",
+            "\t[SerializeField] private string EdnemyName3;",
+            "}",
+            "");
+        var currentText = previousText.Replace("m_PlayerName1", "_PlayerName1", StringComparison.Ordinal);
+        var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(
+            currentText,
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.Contains("[FormerlySerializedAs(\"m_PlayerName1\")]\n\t[SerializeField] private string _PlayerName1;", updatedText);
+        Assert.DoesNotContain("[FormerlySerializedAs(\"_PlayerName1\")]", updatedText);
+    }
+
+    [Fact]
+    public void HandlesRenameBackToUnityBackingFieldNameAfterMigrationCleanup()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[SerializeField] private string _PlayerName1;",
+            "\t[SerializeField] private int PlayerLevel10;",
+            "\t[SerializeField] private string EdnemyName3;",
+            "}",
+            "");
+        var currentText = previousText.Replace("EdnemyName3", "m_EnemyName", StringComparison.Ordinal);
+        var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(
+            currentText,
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.Contains("[FormerlySerializedAs(\"EdnemyName3\")]\n\t[SerializeField] private string m_EnemyName;", updatedText);
+        Assert.DoesNotContain("[FormerlySerializedAs(\"m_EnemyName\")]\n\t[SerializeField] private string m_EnemyName;", updatedText);
+    }
+
+    [Fact]
+    public void HandlesUnityBackingFieldPrefixReplacement()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[SerializeField] private string m_EnemyName;",
+            "}",
+            "");
+        var currentText = previousText.Replace("m_EnemyName", "sEnemyName", StringComparison.Ordinal);
+        var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(
+            currentText,
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.Contains("[FormerlySerializedAs(\"m_EnemyName\")]\n\t[SerializeField] private string sEnemyName;", updatedText);
+    }
+
+    [Fact]
+    public void HandlesUnderscorePrefixInsertionRename()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[SerializeField] private string sEnemyName1;",
+            "}",
+            "");
+        var currentText = previousText.Replace("sEnemyName1", "_sEnemyName1", StringComparison.Ordinal);
+        var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(
+            currentText,
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.Contains("[FormerlySerializedAs(\"sEnemyName1\")]\n\t[SerializeField] private string _sEnemyName1;", updatedText);
+    }
+
+    [Fact]
+    public void HandlesUnderscorePrefixRemovalAfterExistingMigrationChain()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[FormerlySerializedAs(\"m_PlayerLevel9_\")]",
+            "\t[SerializeField] private int _PlayerLevel9;",
+            "}",
+            "");
+        var currentText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[FormerlySerializedAs(\"m_PlayerLevel9_\")]",
+            "\t[SerializeField] private int PlayerLevel9;",
+            "}",
+            "");
+        var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(
+            currentText,
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.Contains("[FormerlySerializedAs(\"_PlayerLevel9\")]", updatedText);
+        Assert.Contains("[FormerlySerializedAs(\"m_PlayerLevel9_\")]", updatedText);
+        Assert.Contains("[SerializeField] private int PlayerLevel9;", updatedText);
+    }
+
+    [Fact]
+    public void HandlesBroadSerializedFieldRenameStyles()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[SerializeField] private string playerName;",
+            "\t[SerializeField] private string enemyTargetName;",
+            "\t[SerializeField] private string moveSpeed;",
+            "\t[SerializeField] private string PlayerScore;",
+            "\t[SerializeField] private string _cachedValue;",
+            "\t[SerializeField] private string m_BossHealth;",
+            "}",
+            "");
+        var currentText = previousText
+            .Replace("playerName", "heroPlayerName", StringComparison.Ordinal)
+            .Replace("enemyTargetName", "enemyTargetNameBackup", StringComparison.Ordinal)
+            .Replace("moveSpeed", "moveRunSpeed", StringComparison.Ordinal)
+            .Replace("PlayerScore", "playerScore", StringComparison.Ordinal)
+            .Replace("_cachedValue", "cachedValue", StringComparison.Ordinal)
+            .Replace("m_BossHealth", "boss_HP_01", StringComparison.Ordinal);
+        var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(
+            currentText,
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.Contains("[FormerlySerializedAs(\"playerName\")]\n\t[SerializeField] private string heroPlayerName;", updatedText);
+        Assert.Contains("[FormerlySerializedAs(\"enemyTargetName\")]\n\t[SerializeField] private string enemyTargetNameBackup;", updatedText);
+        Assert.Contains("[FormerlySerializedAs(\"moveSpeed\")]\n\t[SerializeField] private string moveRunSpeed;", updatedText);
+        Assert.Contains("[FormerlySerializedAs(\"PlayerScore\")]\n\t[SerializeField] private string playerScore;", updatedText);
+        Assert.Contains("[FormerlySerializedAs(\"_cachedValue\")]\n\t[SerializeField] private string cachedValue;", updatedText);
+        Assert.Contains("[FormerlySerializedAs(\"m_BossHealth\")]\n\t[SerializeField] private string boss_HP_01;", updatedText);
+    }
+
+    [Fact]
+    public void HandlesSingleCharacterMiddleInsertionRename()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[SerializeField] private string EnemyName2;",
+            "}",
+            "");
+        var currentText = previousText.Replace("EnemyName2", "EdnemyName2", StringComparison.Ordinal);
+        var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(
+            currentText,
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.Contains("[FormerlySerializedAs(\"EnemyName2\")]\n\t[SerializeField] private string EdnemyName2;", updatedText);
+    }
+
+    [Fact]
     public void HandlesNumericSuffixRename()
     {
         var previousText = string.Join('\n',
@@ -216,6 +462,26 @@ public class FormerlySerializedAsBuilderTests
     }
 
     [Fact]
+    public void HandlesPlainNumericSuffixRename()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[SerializeField] private string ShahriarPlayerName;",
+            "}",
+            "");
+        var currentText = previousText.Replace("ShahriarPlayerName", "ShahriarPlayerName1", StringComparison.Ordinal);
+        var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(
+            currentText,
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.Contains("[FormerlySerializedAs(\"ShahriarPlayerName\")]\n\t[SerializeField] private string ShahriarPlayerName1;", updatedText);
+    }
+
+    [Fact]
     public void HandlesNumericSuffixNumberChange()
     {
         var previousText = string.Join('\n',
@@ -237,6 +503,26 @@ public class FormerlySerializedAsBuilderTests
 
         Assert.Contains("[FormerlySerializedAs(\"enemyName_1\")]\n\t[SerializeField] private string enemyName_3;", updatedText);
         Assert.Contains("[FormerlySerializedAs(\"velocity_1\")]\n\t[SerializeField] private int velocity_2;", updatedText);
+    }
+
+    [Fact]
+    public void HandlesPlainNumericSuffixNumberChange()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "\t[SerializeField] private string ShahriarPlayerName1;",
+            "}",
+            "");
+        var currentText = previousText.Replace("ShahriarPlayerName1", "ShahriarPlayerName2", StringComparison.Ordinal);
+        var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(
+            currentText,
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.Contains("[FormerlySerializedAs(\"ShahriarPlayerName1\")]\n\t[SerializeField] private string ShahriarPlayerName2;", updatedText);
     }
 
     [Fact]
@@ -420,5 +706,110 @@ public class FormerlySerializedAsBuilderTests
             FormerlySerializedAsBuilder.Build(previousText, currentText));
 
         Assert.Contains("[FormerlySerializedAs(\"configPath\")]", updatedText);
+    }
+
+    [Fact]
+    public void RemovesSelfReferentialFormerlySerializedAsAttribute()
+    {
+        var text = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "    [FormerlySerializedAs(\"PlayerLevel1\")]",
+            "    [FormerlySerializedAs(\"PlayerLevel10\")]",
+            "    [SerializeField] private int PlayerLevel1;",
+            "}",
+            "");
+
+        var updatedText = FormerlySerializedAsBuilder.ApplyRemovals(
+            text,
+            FormerlySerializedAsBuilder.BuildSelfAttributeRemovals(text));
+
+        Assert.DoesNotContain("[FormerlySerializedAs(\"PlayerLevel1\")]", updatedText);
+        Assert.Contains("[FormerlySerializedAs(\"PlayerLevel10\")]", updatedText);
+        Assert.Contains("[SerializeField] private int PlayerLevel1;", updatedText);
+    }
+
+    [Fact]
+    public void CleansSelfAttributeAndAddsRealPreviousNameForUnderscoreRemoval()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "    [FormerlySerializedAs(\"PlayerLevel1\")]",
+            "    [FormerlySerializedAs(\"PlayerLevel10\")]",
+            "    [SerializeField] private int _PlayerLevel1;",
+            "}",
+            "");
+        var currentText = previousText.Replace("_PlayerLevel1", "PlayerLevel1", StringComparison.Ordinal);
+        var updatedText = FormerlySerializedAsBuilder.ApplyEdits(
+            currentText,
+            FormerlySerializedAsBuilder.BuildSelfAttributeRemovals(currentText),
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.DoesNotContain("[FormerlySerializedAs(\"PlayerLevel1\")]", updatedText);
+        Assert.Contains("[FormerlySerializedAs(\"_PlayerLevel1\")]", updatedText);
+        Assert.Contains("[FormerlySerializedAs(\"PlayerLevel10\")]", updatedText);
+    }
+
+    [Fact]
+    public void HandlesChainedRenameWithExistingMigrationAttributes()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "    [FormerlySerializedAs(\"m_PlayerName\")]",
+            "    [SerializeField] private string m_PlayerName1;",
+            "}",
+            "");
+        var currentText = previousText.Replace("m_PlayerName1", "_PlayerName1", StringComparison.Ordinal);
+        var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(
+            currentText,
+            FormerlySerializedAsBuilder.Build(previousText, currentText));
+
+        Assert.Contains("[FormerlySerializedAs(\"m_PlayerName1\")]", updatedText);
+        Assert.Contains("[FormerlySerializedAs(\"m_PlayerName\")]", updatedText);
+    }
+
+    [Fact]
+    public void CleansSelfAttributeAndAddsRealPreviousNameChained()
+    {
+        var previousText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "    [FormerlySerializedAs(\"m_PlayerLevel1\")]",
+            "    [SerializeField] private int _PlayerLevel;",
+            "}",
+            "");
+        var currentText = string.Join('\n',
+            "using UnityEngine;",
+            "using UnityEngine.Serialization;",
+            "",
+            "public class TestSerialized : MonoBehaviour",
+            "{",
+            "    [FormerlySerializedAs(\"m_PlayerLevel1\")]",
+            "    [FormerlySerializedAs(\"_PlayerLevel\")]",
+            "    [SerializeField] private int m_PlayerLevel1;",
+            "}",
+            "");
+        
+        var insertions = FormerlySerializedAsBuilder.Build(previousText, currentText);
+        var removals = FormerlySerializedAsBuilder.BuildSelfAttributeRemovals(currentText);
+        
+        var updatedText = FormerlySerializedAsBuilder.ApplyEdits(currentText, removals, insertions);
+
+        Assert.DoesNotContain("[FormerlySerializedAs(\"m_PlayerLevel1\")]", updatedText);
+        Assert.Contains("[FormerlySerializedAs(\"_PlayerLevel\")]", updatedText);
     }
 }
