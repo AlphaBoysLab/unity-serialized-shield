@@ -2,6 +2,11 @@
 
 All notable changes to UnitySerializedShield will be documented in this file.
 
+## 1.0.13
+
+- Fixes a critical rename-detection bug where MonoBehaviours containing multiple serialized fields of the same type (e.g. multiple `private string` fields) were completely ignored.
+- Aligns the VS Code duplicate keys matching logic with the robust index-based grouping used in Visual Studio, ensuring all renames work cleanly.
+
 ## 1.0.12
 
 - Added a VS Code Rename Provider so native F2 and built-in Rename Symbol can keep the inline rename experience.

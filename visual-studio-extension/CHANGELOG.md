@@ -2,6 +2,16 @@
 
 All notable changes to UnitySerializedShield Visual Studio will be documented in this file.
 
+## 1.0.52
+
+- Removes automatic file-saving (SaveDocumentAsync calls) from both `ApplyEditsAsync` and `VerifySavedMigrationAsync` in the Visual Studio listener.
+- Keeps modified C# files in an unsaved/dirty state inside the Visual Studio editor after inserting the `[FormerlySerializedAs]` attribute. This aligns the experience with VS Code, gives the user full undo/redo control, and ensures that the rename and the migration attribute are saved to disk simultaneously in a single user save transaction.
+
+## 1.0.51
+
+- Resolves a critical C# script data-loss bug in Unity. Because the extension previously waited 500ms before applying the `[FormerlySerializedAs]` attribute, Visual Studio committed and saved the rename-only script first. Unity would immediately recompile the rename-only file and destroy the field's serialized variable data in the Inspector before the attribute could be added.
+- Reduced the rename command apply delay to 50ms and the prefix rename delay to 100ms. Supported by the `LastAppliedEditTimes` event cool-down cache, these fast apply times are safe and ensure that Unity receives the attribute simultaneously with the rename, successfully migrating and preserving all serialized variable data.
+
 ## 1.0.50
 
 - Resolves a critical race condition where Visual Studio's `Rename Symbol` engine would trigger a spurious reverse-rename event (e.g. `m_PlayerLevel223 -> m_PlayerLevel1`) immediately after our programmatic attribute insertion. Implemented a thread-safe `LastAppliedEditTimes` timestamp cache to discard any editor events within a 1000ms cool-down window of our edits, while updating current snapshots.

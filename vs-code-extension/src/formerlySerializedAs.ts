@@ -48,30 +48,39 @@ export function buildFormerlySerializedAsEdits(previousText: string, currentText
 }
 
 export function findRenamedSerializedFields(previousText: string, currentText: string): SerializedFieldRename[] {
-	const previousFields = uniqueFieldsByKey(parseSerializedFields(previousText));
-	const currentFields = uniqueFieldsByKey(parseSerializedFields(currentText));
+	const previousFields = fieldsByKey(parseSerializedFields(previousText));
+	const currentFields = fieldsByKey(parseSerializedFields(currentText));
 	const renames: SerializedFieldRename[] = [];
 
-	for (const [key, previousField] of previousFields) {
-		const currentField = currentFields.get(key);
+	for (const [key, previousGroup] of previousFields) {
+		const currentGroup = currentFields.get(key);
 
-		if (!currentField || currentField.name === previousField.name) {
+		if (!currentGroup || currentGroup.length !== previousGroup.length) {
 			continue;
 		}
 
-		renames.push({
-			previousName: previousField.name,
-			previousSerializedName: previousField.serializedName,
-			currentName: currentField.name,
-			currentSerializedName: currentField.serializedName,
-			currentField,
-		});
+		for (let i = 0; i < previousGroup.length; i++) {
+			const previousField = previousGroup[i];
+			const currentField = currentGroup[i];
+
+			if (currentField.name === previousField.name || currentField.serializedName === previousField.serializedName) {
+				continue;
+			}
+
+			renames.push({
+				previousName: previousField.name,
+				previousSerializedName: previousField.serializedName,
+				currentName: currentField.name,
+				currentSerializedName: currentField.serializedName,
+				currentField,
+			});
+		}
 	}
 
 	return renames;
 }
 
-function uniqueFieldsByKey(fields: SerializedField[]) {
+function fieldsByKey(fields: SerializedField[]): Map<string, SerializedField[]> {
 	const groupedFields = new Map<string, SerializedField[]>();
 
 	for (const field of fields) {
@@ -80,15 +89,7 @@ function uniqueFieldsByKey(fields: SerializedField[]) {
 		groupedFields.set(field.key, existingFields);
 	}
 
-	const uniqueFields = new Map<string, SerializedField>();
-
-	for (const [key, fieldsForKey] of groupedFields) {
-		if (fieldsForKey.length === 1) {
-			uniqueFields.set(key, fieldsForKey[0]);
-		}
-	}
-
-	return uniqueFields;
+	return groupedFields;
 }
 
 function hasFormerlySerializedAs(attributesText: string, previousName: string) {
