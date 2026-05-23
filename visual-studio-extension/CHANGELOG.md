@@ -2,6 +2,10 @@
 
 All notable changes to UnitySerializedShield Visual Studio will be documented in this file.
 
+## 1.0.53
+
+- Restores automatic document saving after applying programmatic edits (attribute insertions and cleanup removals). Because Visual Studio's solution rename engine automatically saves variable renames to disk, keeping the added migration attribute unsaved allowed Unity to compile the rename-only script first, resulting in reference loss in the Unity Inspector. Automatically saving ensures Unity always recompiles with the attribute, fully preserving Inspector references.
+
 ## 1.0.52
 
 - Removes automatic file-saving (SaveDocumentAsync calls) from both `ApplyEditsAsync` and `VerifySavedMigrationAsync` in the Visual Studio listener.
