@@ -2,6 +2,40 @@
 
 All notable changes to UnitySerializedShield will be documented in this file.
 
+## 1.0.21
+
+- Upgrades the passive rename detection engine to use a robust, settle-based debounce logic (300ms sweet-spot). This elegantly and permanently replaces the complex `isValidRenameEdit` heuristics. Both multi-file bulk renames (processed instantly) and single-change minimal-diff renames (such as prefix deletions `m_` -> `""` and suffix modifications `5` -> `6` processed after a 300ms settle delay) are now fully supported natively, while incremental typing is perfectly debounced and shielded.
+
+## 1.0.20
+
+- Fixes minimal-diff rename detection issue under C# Dev Kit and OmniSharp. When a serialized field with no other references (where `contentChanges.length === 1`) is renamed from the start (e.g. prefix deletion `m_` -> `""`) or from the end (e.g. replacing a single character/digit `5` -> `6`), the language server optimizes the edit as a minimal-diff text change. We now introduce a mathematically precise `isCompatibleWithRename` checker that matches suffix/prefix modifications, and single-character replacements while keeping incremental typing fully protected.
+
+## 1.0.19
+
+- Implements focus-based active editor snapshotting and visible editor pre-population to guarantee baseline snapshots are always fresh.
+- Introduces a robust disk-fallback baseline recovery mechanism inside the passive change listener. If a background document is loaded on the fly during a solution-wide rename and lacks an in-memory snapshot, we automatically read the pre-rename baseline from the clean file on disk (since the unsaved editor buffer contains the renamed text).
+- Cleans up internal diagnostic logging for the production release.
+
+## 1.0.17
+
+- Fixes critical VS Code baseline loss issue caused by background tab garbage collection. When solution-wide F2 renames are executed, background documents are loaded on the fly, triggering open events. We now preserve baseline snapshots across background close events and only overwrite them if documents are not dirty, preventing baseline corruption.
+- Implements a robust bulk edit failsafe so that any verified identifier replacement is treated as a valid rename command.
+
+## 1.0.16
+
+- Fixes VS Code rename-detection failure under C# Dev Kit/OmniSharp where minor formatting changes (like whitespace/semicolons) inside the rename's text change transaction would cause the extension to ignore the rename. The extension now safely ignores formatting edits and correctly inserts the `[FormerlySerializedAs]` attribute.
+
+## 1.0.15
+
+- Fixes the baseline shifting rename detection bug where incremental keystrokes or intermediate reference changes committed by C# Dev Kit/OmniSharp during F2 inline rename would prematurely update the snapshot baseline.
+- Implements a robust pending queue, debounce delay, and original baseline preservation system mirroring the Visual Studio extension.
+
+## 1.0.14
+
+- Adds a robust passive `onDidChangeTextDocument` listener fallback to support all VS Code rename providers (including Microsoft's C# Dev Kit and OmniSharp).
+- Even if C# Dev Kit's provider has higher priority and completely bypasses our custom `RenameProvider`, our passive listener will detect the completed rename transaction in the editor buffer and cleanly apply `[FormerlySerializedAs]` programmatically.
+- Integrates whole-identifier identifier-diffing checks (`isRenameCommandEdit`) to ensure typing character-by-character never triggers false-positive attributes.
+
 ## 1.0.13
 
 - Fixes a critical rename-detection bug where MonoBehaviours containing multiple serialized fields of the same type (e.g. multiple `private string` fields) were completely ignored.

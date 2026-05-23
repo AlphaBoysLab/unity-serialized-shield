@@ -538,8 +538,9 @@ internal sealed class SerializedShieldTextViewListener :
             DocumentSnapshots[documentKey] = updatedText;
             LastAppliedEditTimes[documentKey] = DateTimeOffset.UtcNow;
             Interlocked.Increment(ref protectedRenameCount);
-            lastChangeSummary = $"Applied {insertions.Count} insertion(s) and {removals.Count} cleanup removal(s). Document remains unsaved for normal user undo/save behavior.";
-            WriteDiagnostic($"{documentKey}: applied {insertions.Count} insertion(s) and {removals.Count} cleanup removal(s). Document remains unsaved.");
+            lastChangeSummary = $"Applied {insertions.Count} insertion(s) and {removals.Count} cleanup removal(s) and automatically saved to prevent Unity reference loss.";
+            WriteDiagnostic($"{documentKey}: applied {insertions.Count} insertion(s) and {removals.Count} cleanup removal(s). Saving document.");
+            await SaveDocumentAsync(textView, documentKey);
             _ = VerifySavedMigrationAsync(textView, documentKey, baselineText);
         }
         finally
@@ -653,8 +654,9 @@ internal sealed class SerializedShieldTextViewListener :
 
                 DocumentSnapshots[documentKey] = repairedText;
                 LastAppliedEditTimes[documentKey] = DateTimeOffset.UtcNow;
-                lastChangeSummary = $"Repaired {missingInsertions.Count} missing insertion(s) and {selfRemovals.Count} removal(s) after Visual Studio rename settled. Document remains unsaved.";
-                WriteDiagnostic($"{documentKey}: repaired {missingInsertions.Count} missing insertion(s) and {selfRemovals.Count} removal(s) after post-insert verification. Document remains unsaved.");
+                lastChangeSummary = $"Repaired {missingInsertions.Count} missing insertion(s) and {selfRemovals.Count} removal(s) and automatically saved to prevent Unity reference loss.";
+                WriteDiagnostic($"{documentKey}: repaired {missingInsertions.Count} missing insertion(s) and {selfRemovals.Count} removal(s). Saving document.");
+                await SaveDocumentAsync(documentUri, documentKey);
             }
             finally
             {
