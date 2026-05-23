@@ -87,6 +87,36 @@ suite('UnitySerializedShield', () => {
 
 		assert.ok(updatedText.includes('[FormerlySerializedAs("m_PlayerName")]\n\t[SerializeField] private string m_PlayerName1;'));
 	});
+
+	test('detects rename on prefix deletion (from start of variable name)', () => {
+		const previousText = [
+			'using UnityEngine;',
+			'public class EnemySensor : MonoBehaviour',
+			'{',
+			'	[SerializeField] private float m_maxDistance = 100f;',
+			'}',
+		].join('\n');
+		const currentText = previousText.replace('m_maxDistance', 'maxDistance');
+		const [rename] = findRenamedSerializedFields(previousText, currentText);
+
+		assert.strictEqual(rename.previousName, 'm_maxDistance');
+		assert.strictEqual(rename.currentName, 'maxDistance');
+	});
+
+	test('detects rename on suffix digit replacement (from end of variable name)', () => {
+		const previousText = [
+			'using UnityEngine;',
+			'public class EnemySensor : MonoBehaviour',
+			'{',
+			'	[SerializeField] private float maxDistance5 = 100f;',
+			'}',
+		].join('\n');
+		const currentText = previousText.replace('maxDistance5', 'maxDistance6');
+		const [rename] = findRenamedSerializedFields(previousText, currentText);
+
+		assert.strictEqual(rename.previousName, 'maxDistance5');
+		assert.strictEqual(rename.currentName, 'maxDistance6');
+	});
 });
 
 function applyInsertions(text: string, insertions: TextInsertion[]) {

@@ -30,6 +30,9 @@ const preRenameSnapshots = new Map<string, string>();
 // Guards against reacting to our own programmatic insertions.
 const documentsBeingUpdated = new Set<string>();
 
+// Holds active debounce timeouts for change detection.
+const pendingDebounceTimeouts = new Map<string, NodeJS.Timeout>();
+
 // Prevents infinite recursion in the RenameProvider.
 let isDelegatingRename = false;
 
@@ -69,9 +72,15 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 		}),
 
-		// Clean up snapshot on close.
+		// Clean up snapshot and timeout on close.
 		vscode.workspace.onDidCloseTextDocument((document) => {
-			preRenameSnapshots.delete(document.uri.toString());
+			const key = document.uri.toString();
+			preRenameSnapshots.delete(key);
+			const timeout = pendingDebounceTimeouts.get(key);
+			if (timeout) {
+				clearTimeout(timeout);
+				pendingDebounceTimeouts.delete(key);
+			}
 		}),
 
 		// Update snapshot when document is saved (clean disk state).
@@ -147,6 +156,36 @@ async function handleDocumentChange(event: vscode.TextDocumentChangeEvent) {
 		return;
 	}
 
+	// If there are multiple changes in one transaction, it's highly likely to be a language-server rename.
+	// We can process it instantly without debouncing!
+	if (event.contentChanges.length > 1) {
+		writeDiagnostic(`handleDocumentChange: instant processing for multi-change edit (${event.contentChanges.length})`);
+		const existingTimeout = pendingDebounceTimeouts.get(documentKey);
+		if (existingTimeout) {
+			clearTimeout(existingTimeout);
+			pendingDebounceTimeouts.delete(documentKey);
+		}
+		await processDocumentChange(document);
+		return;
+	}
+
+	// For single changes (which could be incremental typing or optimized minimal-diff F2 renames),
+	// debounce for 300ms to allow typing to settle before processing.
+	const existingTimeout = pendingDebounceTimeouts.get(documentKey);
+	if (existingTimeout) {
+		clearTimeout(existingTimeout);
+	}
+
+	const timeout = setTimeout(async () => {
+		pendingDebounceTimeouts.delete(documentKey);
+		await processDocumentChange(document);
+	}, 300); // 300ms sweet-spot debounce
+
+	pendingDebounceTimeouts.set(documentKey, timeout);
+}
+
+async function processDocumentChange(document: vscode.TextDocument) {
+	const documentKey = document.uri.toString();
 	let baselineText = preRenameSnapshots.get(documentKey);
 	const currentText = document.getText();
 
@@ -161,11 +200,11 @@ async function handleDocumentChange(event: vscode.TextDocumentChangeEvent) {
 					if (diskRenames.length > 0) {
 						baselineText = diskText;
 						preRenameSnapshots.set(documentKey, diskText);
-						writeDiagnostic(`handleDocumentChange: recovered baseline from disk for ${documentKey}`);
+						writeDiagnostic(`processDocumentChange: recovered baseline from disk for ${documentKey}`);
 					}
 				}
 			} catch (e) {
-				writeDiagnostic(`handleDocumentChange: failed to read disk fallback: ${String(e)}`);
+				writeDiagnostic(`processDocumentChange: failed to read disk fallback: ${String(e)}`);
 			}
 		}
 
@@ -180,7 +219,7 @@ async function handleDocumentChange(event: vscode.TextDocumentChangeEvent) {
 	}
 
 	const renames = findRenamedSerializedFields(baselineText, currentText);
-	writeDiagnostic(`handleDocumentChange: found ${renames.length} renames: ${JSON.stringify(renames.map(r => `${r.previousName}->${r.currentName}`))}`);
+	writeDiagnostic(`processDocumentChange: found ${renames.length} renames: ${JSON.stringify(renames.map(r => `${r.previousName}->${r.currentName}`))}`);
 
 	if (renames.length === 0) {
 		// Not a serialized rename — update the snapshot.
@@ -188,22 +227,11 @@ async function handleDocumentChange(event: vscode.TextDocumentChangeEvent) {
 		return;
 	}
 
-	// Determine if this is a real rename command (not just typing).
-	const isRenameEdit = isValidRenameEdit(event.contentChanges, baselineText, renames);
-	writeDiagnostic(`handleDocumentChange: isRenameEdit=${isRenameEdit}, changes=${event.contentChanges.length}`);
-
-	if (!isRenameEdit) {
-		// Could be incremental typing — don't shift the baseline yet.
-		// The user is still typing; we'll get more events.
-		return;
-	}
-
-	// This is a confirmed rename. Build insertions and apply them.
+	// Build insertions and apply them.
 	const insertions = buildFormerlySerializedAsEdits(baselineText, currentText);
-	writeDiagnostic(`handleDocumentChange: built ${insertions.length} insertions`);
+	writeDiagnostic(`processDocumentChange: built ${insertions.length} insertions`);
 
 	if (insertions.length === 0) {
-		// Nothing to add (e.g., FormerlySerializedAs already present).
 		preRenameSnapshots.set(documentKey, currentText);
 		return;
 	}
@@ -215,59 +243,13 @@ async function handleDocumentChange(event: vscode.TextDocumentChangeEvent) {
 
 	documentsBeingUpdated.add(documentKey);
 	try {
-		writeDiagnostic(`handleDocumentChange: applying ${insertions.length} insertion(s)`);
+		writeDiagnostic(`processDocumentChange: applying ${insertions.length} insertion(s)`);
 		const success = await vscode.workspace.applyEdit(workspaceEdit);
-		writeDiagnostic(`handleDocumentChange: applyEdit success=${success}`);
+		writeDiagnostic(`processDocumentChange: applyEdit success=${success}`);
 		preRenameSnapshots.set(documentKey, document.getText());
 	} finally {
 		documentsBeingUpdated.delete(documentKey);
 	}
-}
-
-// ─── Rename detection ──────────────────────────────────────────────────────────
-
-/**
- * Returns true if any content change is a valid identifier replacement
- * matching one of the expected renames, OR if the change is a bulk
- * (multi-character) replace that looks like a whole-word rename.
- * Ignores formatting-only changes (whitespace, semicolons, etc.).
- */
-function isValidRenameEdit(
-	contentChanges: readonly vscode.TextDocumentContentChangeEvent[],
-	previousText: string,
-	renames: readonly SerializedFieldRename[],
-): boolean {
-	// Multiple changes in one transaction usually means a language-server rename.
-	if (contentChanges.length > 1) {
-		writeDiagnostic(`isValidRenameEdit: multiple changes (${contentChanges.length}) — treating as rename`);
-		return true;
-	}
-
-	const expectedRenames = new Set(renames.map((r) => `${r.previousName}\u0000${r.currentName}`));
-
-	for (const change of contentChanges) {
-		const replacedText = previousText.slice(change.rangeOffset, change.rangeOffset + change.rangeLength);
-		const newText = change.text;
-
-		// Skip formatting changes.
-		if (!isIdentifier(replacedText) || !isIdentifier(newText)) {
-			continue;
-		}
-
-		// Exact match: the replaced text and new text match an expected rename.
-		if (expectedRenames.has(`${replacedText}\u0000${newText}`)) {
-			writeDiagnostic(`isValidRenameEdit: matched identifier change "${replacedText}" -> "${newText}"`);
-			return true;
-		}
-
-		// Bulk replace heuristic: replaced span is longer than 2 chars on either side.
-		if (replacedText.length > 2 || newText.length > 2) {
-			writeDiagnostic(`isValidRenameEdit: bulk identifier change "${replacedText}" -> "${newText}"`);
-			return true;
-		}
-	}
-
-	return false;
 }
 
 // ─── RenameProvider (direct path, called when our provider wins) ───────────────

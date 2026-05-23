@@ -2,6 +2,14 @@
 
 All notable changes to UnitySerializedShield will be documented in this file.
 
+## 1.0.21
+
+- Upgrades the passive rename detection engine to use a robust, settle-based debounce logic (300ms sweet-spot). This elegantly and permanently replaces the complex `isValidRenameEdit` heuristics. Both multi-file bulk renames (processed instantly) and single-change minimal-diff renames (such as prefix deletions `m_` -> `""` and suffix modifications `5` -> `6` processed after a 300ms settle delay) are now fully supported natively, while incremental typing is perfectly debounced and shielded.
+
+## 1.0.20
+
+- Fixes minimal-diff rename detection issue under C# Dev Kit and OmniSharp. When a serialized field with no other references (where `contentChanges.length === 1`) is renamed from the start (e.g. prefix deletion `m_` -> `""`) or from the end (e.g. replacing a single character/digit `5` -> `6`), the language server optimizes the edit as a minimal-diff text change. We now introduce a mathematically precise `isCompatibleWithRename` checker that matches suffix/prefix modifications, and single-character replacements while keeping incremental typing fully protected.
+
 ## 1.0.19
 
 - Implements focus-based active editor snapshotting and visible editor pre-population to guarantee baseline snapshots are always fresh.
