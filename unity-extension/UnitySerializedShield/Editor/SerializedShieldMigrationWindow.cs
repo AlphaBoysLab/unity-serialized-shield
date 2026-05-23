@@ -129,6 +129,7 @@ namespace AlphaBoysLab.SerializedShield.Editor
             EditorGUILayout.LabelField(Path.GetFileName(script.ScriptPath), EditorStyles.boldLabel);
             EditorGUILayout.SelectableLabel(script.ScriptPath, GUILayout.Height(EditorGUIUtility.singleLineHeight));
             EditorGUILayout.LabelField("FormerlySerializedAs count", script.AttributeCount.ToString());
+            EditorGUILayout.LabelField("Detected field migrations", script.FieldMigrations.Count.ToString());
             EditorGUILayout.LabelField("Old names: " + string.Join(", ", script.FormerNames.Distinct().ToArray()), EditorStyles.wordWrappedLabel);
 
             EditorGUILayout.BeginHorizontal();
@@ -217,8 +218,10 @@ namespace AlphaBoysLab.SerializedShield.Editor
                 SerializedShieldMigrationResult result = SerializedShieldMigrationProcessor.MigrateScript(script, options);
                 RefreshScriptList();
                 statusMessage = string.Format(
-                    "Migrated {0}. Reserialized {1} file(s), removed {2} attribute(s).",
+                    "Migrated {0}. Text-migrated {1} field(s) in {2} file(s), reserialized {3} file(s), removed {4} attribute(s).",
                     result.ScriptPath,
+                    result.TextMigratedFieldCount,
+                    result.TextMigratedAssetCount,
                     result.ReserializedAssetCount,
                     result.RemovedAttributeCount);
             }
@@ -242,16 +245,25 @@ namespace AlphaBoysLab.SerializedShield.Editor
 
             int totalReserialized = 0;
             int totalRemoved = 0;
+            int totalTextMigratedAssets = 0;
+            int totalTextMigratedFields = 0;
 
             foreach (SerializedShieldScriptInfo script in scriptsToMigrate.ToArray())
             {
                 SerializedShieldMigrationResult result = SerializedShieldMigrationProcessor.MigrateScript(script, options);
                 totalReserialized += result.ReserializedAssetCount;
                 totalRemoved += result.RemovedAttributeCount;
+                totalTextMigratedAssets += result.TextMigratedAssetCount;
+                totalTextMigratedFields += result.TextMigratedFieldCount;
             }
 
             RefreshScriptList();
-            statusMessage = string.Format("Migration complete. Reserialized {0} file(s), removed {1} attribute(s).", totalReserialized, totalRemoved);
+            statusMessage = string.Format(
+                "Migration complete. Text-migrated {0} field(s) in {1} file(s), reserialized {2} file(s), removed {3} attribute(s).",
+                totalTextMigratedFields,
+                totalTextMigratedAssets,
+                totalReserialized,
+                totalRemoved);
         }
 
         private void RestoreBackup(string sessionFilePath)

@@ -14,12 +14,13 @@ internal sealed class SerializedShieldTextViewListener :
     ITextViewChangedListener
 {
     private const int RenameSettleDelayMilliseconds = 400;
-    private const int RenameCommandApplyDelayMilliseconds = 250;
+    private const int RenameCommandApplyDelayMilliseconds = 500;
     private const int PrefixRenameApplyDelayMilliseconds = 650;
     private const int PostInsertVerificationDelayMilliseconds = 900;
     private static readonly ConcurrentDictionary<string, string> DocumentSnapshots = new();
     private static readonly ConcurrentDictionary<string, byte> DocumentsBeingUpdated = new();
     private static readonly ConcurrentDictionary<string, PendingRenameOperation> PendingRenameOperations = new();
+    private static readonly ConcurrentDictionary<string, DateTimeOffset> LastAppliedEditTimes = new();
     private static int openedCount;
     private static int changedCount;
     private static int protectedRenameCount;
@@ -58,6 +59,7 @@ internal sealed class SerializedShieldTextViewListener :
             DocumentSnapshots.TryRemove(documentKey, out _);
             DocumentsBeingUpdated.TryRemove(documentKey, out _);
             PendingRenameOperations.TryRemove(documentKey, out _);
+            LastAppliedEditTimes.TryRemove(documentKey, out _);
         }
 
         return Task.CompletedTask;
@@ -77,6 +79,15 @@ internal sealed class SerializedShieldTextViewListener :
         lastDocumentKey = documentKey;
 
         var currentText = textView.Document.Text.CopyToString();
+
+        if (LastAppliedEditTimes.TryGetValue(documentKey, out var lastAppliedTime)
+            && DateTimeOffset.UtcNow - lastAppliedTime < TimeSpan.FromMilliseconds(1000))
+        {
+            DocumentSnapshots[documentKey] = currentText;
+            lastChangeSummary = "Ignored change within edit post-apply cool-down period.";
+            WriteDiagnostic($"{documentKey}: ignored edit in cool-down period. CurrentText update stored.");
+            return;
+        }
 
         if (DocumentsBeingUpdated.ContainsKey(documentKey))
         {
@@ -452,18 +463,19 @@ internal sealed class SerializedShieldTextViewListener :
             }
 
             var insertions = FormerlySerializedAsBuilder.Build(operation.BaselineText, currentText);
-            lastChangeSummary = $"Serialized rename confirmed (bulk={operation.IsBulkEdit}, renameEdit={operation.IsRenameCommandEdit}, seen={operation.SeenCount}). Insertions: {insertions.Count}.";
-            WriteDiagnostic($"{documentKey}: applying pending rename v{operationVersion}. Bulk: {operation.IsBulkEdit}. Rename edit: {operation.IsRenameCommandEdit}. Insertions: {insertions.Count}. Renames: {string.Join(", ", renames.Select(rename => $"{rename.PreviousName}->{rename.CurrentName}"))}");
+            var removals = FormerlySerializedAsBuilder.BuildSelfAttributeRemovals(currentText);
+            lastChangeSummary = $"Serialized rename confirmed (bulk={operation.IsBulkEdit}, renameEdit={operation.IsRenameCommandEdit}, seen={operation.SeenCount}). Insertions: {insertions.Count}, Removals: {removals.Count}.";
+            WriteDiagnostic($"{documentKey}: applying pending rename v{operationVersion}. Bulk: {operation.IsBulkEdit}. Rename edit: {operation.IsRenameCommandEdit}. Insertions: {insertions.Count}. Removals: {removals.Count}. Renames: {string.Join(", ", renames.Select(rename => $"{rename.PreviousName}->{rename.CurrentName}"))}");
 
-            if (insertions.Count == 0)
+            if (insertions.Count == 0 && removals.Count == 0)
             {
                 PendingRenameOperations.TryRemove(documentKey, out _);
                 DocumentSnapshots[documentKey] = currentText;
-                WriteDiagnostic($"{documentKey}: no insertions needed.");
+                WriteDiagnostic($"{documentKey}: no edits needed.");
                 return;
             }
 
-            await ApplyInsertionsAsync(textView, documentKey, operation.BaselineText, currentText, insertions);
+            await ApplyEditsAsync(textView, documentKey, operation.BaselineText, currentText, insertions, removals);
             PendingRenameOperations.TryRemove(documentKey, out _);
         }
         catch (Exception exception)
@@ -472,12 +484,13 @@ internal sealed class SerializedShieldTextViewListener :
         }
     }
 
-    private async Task ApplyInsertionsAsync(
+    private async Task ApplyEditsAsync(
         ITextViewSnapshot textView,
         string documentKey,
         string baselineText,
         string currentText,
-        IReadOnlyList<TextInsertion> insertions)
+        IReadOnlyList<TextInsertion> insertions,
+        IReadOnlyList<TextRemoval> removals)
     {
         DocumentsBeingUpdated[documentKey] = 0;
 
@@ -487,13 +500,33 @@ internal sealed class SerializedShieldTextViewListener :
             {
                 var editor = textView.Document.AsEditable(editBatch);
 
-                foreach (var insertion in insertions.OrderByDescending(insertion => insertion.Offset))
+                var adjustedInsertions = new List<TextInsertion>();
+                foreach (var insertion in insertions)
+                {
+                    var offset = insertion.Offset;
+                    foreach (var removal in removals)
+                    {
+                        if (removal.Offset == offset)
+                        {
+                            offset = removal.Offset + removal.Length;
+                            break;
+                        }
+                    }
+                    adjustedInsertions.Add(new TextInsertion(offset, insertion.Text));
+                }
+
+                foreach (var removal in removals.OrderByDescending(removal => removal.Offset))
+                {
+                    editor.Replace(new TextRange(textView.Document, removal.Offset, removal.Length), string.Empty);
+                }
+
+                foreach (var insertion in adjustedInsertions.OrderByDescending(insertion => insertion.Offset))
                 {
                     editor.Insert(insertion.Offset, insertion.Text);
                 }
             }, CancellationToken.None);
 
-            var updatedText = FormerlySerializedAsBuilder.ApplyInsertions(currentText, insertions);
+            var updatedText = FormerlySerializedAsBuilder.ApplyEdits(currentText, removals, insertions);
 
             if (editResponse.DocumentEditResults is not null
                 && editResponse.DocumentEditResults.TryGetValue(textView.Document, out var documentEditResult)
@@ -503,10 +536,11 @@ internal sealed class SerializedShieldTextViewListener :
             }
 
             DocumentSnapshots[documentKey] = updatedText;
+            LastAppliedEditTimes[documentKey] = DateTimeOffset.UtcNow;
             Interlocked.Increment(ref protectedRenameCount);
             await SaveDocumentAsync(textView, documentKey);
-            lastChangeSummary = $"Applied {insertions.Count} insertion(s) and saved the document.";
-            WriteDiagnostic($"{documentKey}: applied {insertions.Count} insertion(s) and saved the document.");
+            lastChangeSummary = $"Applied {insertions.Count} insertion(s) and {removals.Count} cleanup removal(s) and saved the document.";
+            WriteDiagnostic($"{documentKey}: applied {insertions.Count} insertion(s) and {removals.Count} cleanup removal(s) and saved the document.");
             _ = VerifySavedMigrationAsync(textView, documentKey, baselineText);
         }
         finally
@@ -566,8 +600,9 @@ internal sealed class SerializedShieldTextViewListener :
             var latestDocument = await this.Extensibility.Documents().OpenTextDocumentAsync(documentUri, CancellationToken.None);
             var latestText = latestDocument.Text.CopyToString();
             var missingInsertions = FormerlySerializedAsBuilder.Build(baselineText, latestText);
+            var selfRemovals = FormerlySerializedAsBuilder.BuildSelfAttributeRemovals(latestText);
 
-            if (missingInsertions.Count == 0)
+            if (missingInsertions.Count == 0 && selfRemovals.Count == 0)
             {
                 DocumentSnapshots[documentKey] = latestText;
                 WriteDiagnostic($"{documentKey}: post-insert verification passed.");
@@ -582,13 +617,33 @@ internal sealed class SerializedShieldTextViewListener :
                 {
                     var editor = latestDocument.AsEditable(editBatch);
 
-                    foreach (var insertion in missingInsertions.OrderByDescending(insertion => insertion.Offset))
+                    var adjustedInsertions = new List<TextInsertion>();
+                    foreach (var insertion in missingInsertions)
+                    {
+                        var offset = insertion.Offset;
+                        foreach (var removal in selfRemovals)
+                        {
+                            if (removal.Offset == offset)
+                            {
+                                offset = removal.Offset + removal.Length;
+                                break;
+                            }
+                        }
+                        adjustedInsertions.Add(new TextInsertion(offset, insertion.Text));
+                    }
+
+                    foreach (var removal in selfRemovals.OrderByDescending(removal => removal.Offset))
+                    {
+                        editor.Replace(new TextRange(latestDocument, removal.Offset, removal.Length), string.Empty);
+                    }
+
+                    foreach (var insertion in adjustedInsertions.OrderByDescending(insertion => insertion.Offset))
                     {
                         editor.Insert(insertion.Offset, insertion.Text);
                     }
                 }, CancellationToken.None);
 
-                var repairedText = FormerlySerializedAsBuilder.ApplyInsertions(latestText, missingInsertions);
+                var repairedText = FormerlySerializedAsBuilder.ApplyEdits(latestText, selfRemovals, missingInsertions);
 
                 if (editResponse.DocumentEditResults is not null
                     && editResponse.DocumentEditResults.TryGetValue(latestDocument, out var documentEditResult)
@@ -598,9 +653,10 @@ internal sealed class SerializedShieldTextViewListener :
                 }
 
                 DocumentSnapshots[documentKey] = repairedText;
+                LastAppliedEditTimes[documentKey] = DateTimeOffset.UtcNow;
                 await SaveDocumentAsync(documentUri, documentKey);
-                lastChangeSummary = $"Repaired {missingInsertions.Count} missing insertion(s) after Visual Studio rename settled.";
-                WriteDiagnostic($"{documentKey}: repaired {missingInsertions.Count} missing insertion(s) after post-insert verification.");
+                lastChangeSummary = $"Repaired {missingInsertions.Count} missing insertion(s) and {selfRemovals.Count} removal(s) after Visual Studio rename settled.";
+                WriteDiagnostic($"{documentKey}: repaired {missingInsertions.Count} missing insertion(s) and {selfRemovals.Count} removal(s) after post-insert verification.");
             }
             finally
             {
