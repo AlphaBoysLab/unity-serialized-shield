@@ -69,6 +69,24 @@ suite('UnitySerializedShield', () => {
 
 		assert.deepStrictEqual(buildFormerlySerializedAsEdits(previousText, currentText), []);
 	});
+
+	test('handles rename when class contains multiple serialized fields of same type', () => {
+		const previousText = [
+			'using UnityEngine;',
+			'',
+			'public class TestSerialized : MonoBehaviour',
+			'{',
+			'	[SerializeField] private string m_PlayerName;',
+			'	[SerializeField] private int m_PlayerLevel;',
+			'	[SerializeField] private string m_EnemyName;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace('m_PlayerName', 'm_PlayerName1');
+		const updatedText = applyInsertions(currentText, buildFormerlySerializedAsEdits(previousText, currentText));
+
+		assert.ok(updatedText.includes('[FormerlySerializedAs("m_PlayerName")]\n\t[SerializeField] private string m_PlayerName1;'));
+	});
 });
 
 function applyInsertions(text: string, insertions: TextInsertion[]) {
