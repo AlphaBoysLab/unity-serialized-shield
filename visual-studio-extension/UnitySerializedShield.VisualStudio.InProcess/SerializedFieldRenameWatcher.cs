@@ -4,6 +4,8 @@ using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.VisualStudio.LanguageServices;
+using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Threading;
 using UnitySerializedShield.Roslyn;
 
@@ -160,6 +162,18 @@ namespace UnitySerializedShield.VisualStudio.InProcess
             try
             {
                 var applied = workspace.TryApplyChanges(updatedSolution);
+
+                // CRITICAL: persist the migrated file to disk immediately. Visual
+                // Studio's rename engine already saved the rename-only version, so
+                // if the [FormerlySerializedAs] attribute stays in the unsaved buffer
+                // Unity recompiles the rename-only script and drops the serialized
+                // value (resets it to default). Saving now lets Unity recompile with
+                // the attribute and map the old serialized data to the new name.
+                if (applied)
+                {
+                    SaveDocumentToDisk(latestDocument.FilePath);
+                }
+
                 DiagnosticLog.Write(
                     $"Applied [{string.Join(", ", System.Linq.Enumerable.Select(renames, r => $"{r.PreviousName}->{r.CurrentName}"))}] "
                     + $"to {latestDocument.FilePath} (TryApplyChanges={applied}).");
@@ -167,6 +181,38 @@ namespace UnitySerializedShield.VisualStudio.InProcess
             finally
             {
                 documentsBeingEdited.TryRemove(documentId, out _);
+            }
+        }
+
+        // Saves the open document to disk so the migration attribute reaches Unity
+        // together with the rename. Must run on the UI thread.
+        private static void SaveDocumentToDisk(string? filePath)
+        {
+            if (string.IsNullOrEmpty(filePath))
+            {
+                return;
+            }
+
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            if (!(Package.GetGlobalService(typeof(SDTE)) is EnvDTE.DTE dte))
+            {
+                return;
+            }
+
+            foreach (EnvDTE.Document document in dte.Documents)
+            {
+                if (!string.Equals(document.FullName, filePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!document.Saved)
+                {
+                    document.Save();
+                }
+
+                return;
             }
         }
 

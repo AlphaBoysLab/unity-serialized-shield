@@ -2,6 +2,10 @@
 
 All notable changes to UnitySerializedShield Visual Studio will be documented in this file.
 
+## 2.0.1
+
+- Fixes Unity losing serialized values (resetting to default) even though `[FormerlySerializedAs]` was added correctly. After inserting the attribute the file is now saved to disk immediately, so Unity recompiles the script with the attribute present and maps the old serialized data to the new field name. Previously the attribute stayed in the unsaved editor buffer while Visual Studio's rename engine had already written the rename-only script to disk, causing Unity to drop the reference.
+
 ## 2.0.0
 
 - Major rewrite onto a Roslyn-powered, in-process engine for accurate, solution-wide rename detection.
