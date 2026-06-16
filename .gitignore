@@ -18,6 +18,10 @@ pnpm-debug.log*
 **/.vscode-test/
 *.vsix
 
+# VSSDK build-generated manifests (regenerated from source.extension.vsixmanifest)
+**/extension.vsixmanifest
+**/merged.source.extension.vsixmanifest
+
 # Unity generated folders
 **/[Ll]ibrary/
 **/[Tt]emp/
