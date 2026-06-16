@@ -2,6 +2,18 @@
 
 All notable changes to UnitySerializedShield Visual Studio will be documented in this file.
 
+## 2.0.0
+
+- Major rewrite onto a Roslyn-powered, in-process engine for accurate, solution-wide rename detection.
+- Renaming a serialized field with Rename Symbol (Ctrl+R, R) now adds `[FormerlySerializedAs("oldName")]` to the field **declaration** even when the rename is started from a reference in another file or class — true Rider-like, cross-file behavior.
+- Detection is semantic (Roslyn `VisualStudioWorkspace`) instead of text/regex based, and only reacts to the actual Rename command, never to character-by-character typing.
+- Conservative skips preserved: static/const/readonly fields, `[NonSerialized]`, multi-field declarations, and non-Unity types.
+- The shipped package no longer bundles the vulnerable transitive MessagePack assembly.
+
+## 1.0.54
+
+- Maintenance release. Rebuilt and repackaged the extension against the current Visual Studio toolchain; no functional changes to serialized-field rename detection. A separate Roslyn-based, solution-wide rename engine is in development for a future major release.
+
 ## 1.0.53
 
 - Restores automatic document saving after applying programmatic edits (attribute insertions and cleanup removals). Because Visual Studio's solution rename engine automatically saves variable renames to disk, keeping the added migration attribute unsaved allowed Unity to compile the rename-only script first, resulting in reference loss in the Unity Inspector. Automatically saving ensures Unity always recompiles with the attribute, fully preserving Inspector references.
