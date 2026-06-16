@@ -1,6 +1,10 @@
 import { normalizeWhitespace, splitLines, stripLineComment, TextLine } from './textUtils';
 
 const serializedFieldPattern = /\b(?:UnityEngine\.)?SerializeField(?:Attribute)?\b/;
+const nonSerializedPattern = /\bNonSerialized(?:Attribute)?\b/;
+// Base types whose public/serialized instance fields participate in Unity serialization.
+const unityBasePattern = /\b(?:MonoBehaviour|ScriptableObject|StateMachineBehaviour)\b/;
+const serializableAttributePattern = /\bSerializable(?:Attribute)?\b/;
 
 export type SerializedField = {
 	name: string;
@@ -42,7 +46,8 @@ function parseSerializedFieldAtLine(lines: TextLine[], lineIndex: number): Seria
 		.join('\n');
 	const attributesText = `${attributesAbove}\n${inlineAttributes}`;
 
-	if (!serializedFieldPattern.test(attributesText)) {
+	// A field explicitly opted out of serialization is never migrated.
+	if (nonSerializedPattern.test(attributesText)) {
 		return undefined;
 	}
 
@@ -60,8 +65,22 @@ function parseSerializedFieldAtLine(lines: TextLine[], lineIndex: number): Seria
 
 	const modifiers = fieldMatch.groups.modifiers ?? '';
 
-	if (/\b(?:static|const)\b/.test(modifiers)) {
+	// Unity never serializes static, const, or readonly fields.
+	if (/\b(?:static|const|readonly)\b/.test(modifiers)) {
 		return undefined;
+	}
+
+	// A field is Unity-serialized when it carries [SerializeField], or when it is a
+	// public instance field inside a serializable Unity type (MonoBehaviour,
+	// ScriptableObject, StateMachineBehaviour, or a [Serializable] type).
+	const hasSerializeField = serializedFieldPattern.test(attributesText);
+
+	if (!hasSerializeField) {
+		const isPublic = /\bpublic\b/.test(modifiers);
+
+		if (!isPublic || !isEnclosingTypeSerializable(lines, attributeStartLine)) {
+			return undefined;
+		}
 	}
 
 	const name = fieldMatch.groups.name;
@@ -103,6 +122,46 @@ function isAttributeOnlyLine(line: string) {
 	const trimmedLine = stripLineComment(line).trim();
 
 	return trimmedLine.startsWith('[') && trimmedLine.endsWith(']');
+}
+
+// Determines whether the type enclosing the given line is one whose public
+// instance fields Unity serializes. Uses the nearest preceding class/struct
+// declaration (with its base list, possibly spanning lines, and any preceding
+// [Serializable] attribute), which covers the common single-type-per-file layout
+// of Unity scripts.
+function isEnclosingTypeSerializable(lines: TextLine[], fieldLineIndex: number) {
+	for (let lineIndex = fieldLineIndex - 1; lineIndex >= 0; lineIndex--) {
+		const trimmedLine = stripLineComment(lines[lineIndex].text).trim();
+
+		if (!/\b(?:class|struct)\s+[A-Za-z_]\w*/.test(trimmedLine)) {
+			continue;
+		}
+
+		// Collect the declaration and any continuation up to the opening brace so a
+		// multi-line base list (e.g. `class X :` then `MonoBehaviour {`) is captured.
+		let declarationText = '';
+		for (let scanIndex = lineIndex; scanIndex < lines.length; scanIndex++) {
+			declarationText += ` ${stripLineComment(lines[scanIndex].text)}`;
+			if (lines[scanIndex].text.includes('{')) {
+				break;
+			}
+		}
+
+		if (unityBasePattern.test(declarationText)) {
+			return true;
+		}
+
+		// Otherwise check for a [Serializable] attribute on the lines above the type.
+		for (let attributeIndex = lineIndex - 1; attributeIndex >= 0 && isAttributeOnlyLine(lines[attributeIndex].text); attributeIndex--) {
+			if (serializableAttributePattern.test(stripLineComment(lines[attributeIndex].text))) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	return false;
 }
 
 function getLeadingAttributes(line: string) {

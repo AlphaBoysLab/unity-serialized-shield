@@ -2,6 +2,13 @@
 
 All notable changes to UnitySerializedShield will be documented in this file.
 
+## 1.1.0
+
+- Adds protection for **public** serialized fields that have no explicit `[SerializeField]` attribute. A public instance field inside a `MonoBehaviour`, `ScriptableObject`, `StateMachineBehaviour`, or a `[Serializable]` type is now recognized as Unity-serialized, so renaming it adds `[FormerlySerializedAs]` just like an explicit `[SerializeField]`.
+- Skips `readonly` serialized fields (Unity never serializes them), matching the static/const skip rule.
+- Skips fields marked `[NonSerialized]`.
+- Brings the VS Code parser's serialization rules in line with the Roslyn-based Visual Studio engine.
+
 ## 1.0.21
 
 - Upgrades the passive rename detection engine to use a robust, settle-based debounce logic (300ms sweet-spot). This elegantly and permanently replaces the complex `isValidRenameEdit` heuristics. Both multi-file bulk renames (processed instantly) and single-change minimal-diff renames (such as prefix deletions `m_` -> `""` and suffix modifications `5` -> `6` processed after a 300ms settle delay) are now fully supported natively, while incremental typing is perfectly debounced and shielded.

@@ -117,6 +117,85 @@ suite('UnitySerializedShield', () => {
 		assert.strictEqual(rename.previousName, 'maxDistance5');
 		assert.strictEqual(rename.currentName, 'maxDistance6');
 	});
+
+	test('protects a public field in a MonoBehaviour without [SerializeField]', () => {
+		const previousText = [
+			'using UnityEngine;',
+			'',
+			'public class Player : MonoBehaviour',
+			'{',
+			'	public float speed = 5f;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace('speed', 'moveSpeed');
+		const updatedText = applyInsertions(currentText, buildFormerlySerializedAsEdits(previousText, currentText));
+
+		assert.ok(updatedText.includes('using UnityEngine.Serialization;'));
+		assert.ok(updatedText.includes('[FormerlySerializedAs("speed")]\n\tpublic float moveSpeed = 5f;'));
+	});
+
+	test('protects a public field in a [Serializable] type', () => {
+		const previousText = [
+			'using System;',
+			'',
+			'[Serializable]',
+			'public class Stats',
+			'{',
+			'	public int health = 10;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace('health', 'maxHealth');
+		const [rename] = findRenamedSerializedFields(previousText, currentText);
+
+		assert.strictEqual(rename.previousName, 'health');
+		assert.strictEqual(rename.currentName, 'maxHealth');
+	});
+
+	test('ignores a public field in a plain non-Unity class', () => {
+		const previousText = [
+			'public class PlainData',
+			'{',
+			'	public float speed = 5f;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace('speed', 'moveSpeed');
+
+		assert.deepStrictEqual(buildFormerlySerializedAsEdits(previousText, currentText), []);
+	});
+
+	test('ignores a readonly serialized field', () => {
+		const previousText = [
+			'using UnityEngine;',
+			'',
+			'public class Config : MonoBehaviour',
+			'{',
+			'	[SerializeField] private readonly float maxDistance = 100f;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace('maxDistance', 'attackDistance');
+
+		assert.deepStrictEqual(buildFormerlySerializedAsEdits(previousText, currentText), []);
+	});
+
+	test('ignores a [NonSerialized] public field in a MonoBehaviour', () => {
+		const previousText = [
+			'using System;',
+			'using UnityEngine;',
+			'',
+			'public class Config : MonoBehaviour',
+			'{',
+			'	[NonSerialized] public float maxDistance = 100f;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace('maxDistance', 'attackDistance');
+
+		assert.deepStrictEqual(buildFormerlySerializedAsEdits(previousText, currentText), []);
+	});
 });
 
 function applyInsertions(text: string, insertions: TextInsertion[]) {
