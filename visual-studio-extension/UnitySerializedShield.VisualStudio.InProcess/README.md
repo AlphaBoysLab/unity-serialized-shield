@@ -1,14 +1,14 @@
 ![UnitySerializedShield](https://raw.githubusercontent.com/AlphaBoysLab/unity-serialized-shield/main/Images/unity-serialized-shield.png)
 
-# UnitySerializedShield (Roslyn)
+# UnitySerializedShield
 
-Rider-like protection for Unity serialized field renames — for Visual Studio.
+Automatic `[FormerlySerializedAs]` protection for Unity serialized field renames — for Visual Studio.
 
 When you rename a Unity `[SerializeField]` (or public) field, Unity normally loses the link between the old serialized data and the new field name, so values set in the Inspector, prefabs, scenes, and ScriptableObjects can be lost. UnitySerializedShield fixes this automatically: on a real **Rename Symbol** it adds Unity's official `[FormerlySerializedAs("oldName")]` attribute to the field **declaration**, so Unity reconnects the data.
 
-## What makes this version different
+## How it works
 
-This is the Roslyn-powered, solution-wide engine. Unlike text-only approaches, it understands your code semantically:
+A Roslyn-powered, solution-wide engine that understands your code semantically:
 
 - **Rename from anywhere.** Start the rename on the declaration *or* on a reference in another file/class — the `[FormerlySerializedAs]` still lands on the field's declaration.
 - **Semantic detection.** Built on Roslyn (`VisualStudioWorkspace`), not regular expressions.

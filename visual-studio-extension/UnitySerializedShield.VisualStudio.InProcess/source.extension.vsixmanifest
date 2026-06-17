@@ -8,7 +8,7 @@
               Language="en-US"
               Publisher="AlphaBoysLab" />
     <DisplayName>UnitySerializedShield</DisplayName>
-    <Description xml:space="preserve">Rider-like protection for Unity serialized field renames. When you rename a [SerializeField] (or public) field with Rename Symbol (Ctrl+R, R) anywhere in the solution, it automatically adds [FormerlySerializedAs("oldName")] to the field declaration — even when the rename is started from a reference in another file — so Unity never loses Inspector, prefab, or scene references. Powered by Roslyn for accurate, solution-wide, semantic rename detection.</Description>
+    <Description xml:space="preserve">Protects Unity serialized field renames. When you rename a [SerializeField] or public field with Rename Symbol (Ctrl+R, R) anywhere in the solution, it automatically adds [FormerlySerializedAs("oldName")] to the field declaration — even when the rename is started from a reference in another file — so Unity never loses Inspector, prefab, or scene references. Powered by Roslyn for accurate, solution-wide rename detection. Install the Unity package too before removing migration attributes.</Description>
     <MoreInfo>https://github.com/AlphaBoysLab/unity-serialized-shield</MoreInfo>
     <License>LICENSE.txt</License>
     <Icon>Images\icon.png</Icon>
