@@ -1,5 +1,5 @@
 <Solution>
   <Project Path="UnitySerializedShield.Roslyn\UnitySerializedShield.Roslyn.csproj" />
   <Project Path="UnitySerializedShield.Roslyn.Tests\UnitySerializedShield.Roslyn.Tests.csproj" />
-  <Project Path="UnitySerializedShield.VisualStudio.InProcess\UnitySerializedShield.VisualStudio.InProcess.csproj" />
+  <Project Path="UnitySerializedShield.VisualStudio.InProcess\UnitySerializedShield.VisualStudio.InProcess.csproj" Id="b3f8a7d2-4e91-4c6b-9a1d-7c2e5f8b9d40" />
 </Solution>
