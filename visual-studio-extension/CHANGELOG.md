@@ -2,6 +2,10 @@
 
 All notable changes to UnitySerializedShield Visual Studio will be documented in this file.
 
+## 2.0.2
+
+- Makes rename detection robust against stale extension/MEF caches. The Rename command is now recognized from DTE command events inside the auto-loaded package (which always loads via its pkgdef), in addition to the MEF command handler. Previously, if Visual Studio's MEF catalog skipped the command handler, a single-field Rename Symbol would not be recognized and no `[FormerlySerializedAs]` was added.
+
 ## 2.0.1
 
 - Fixes Unity losing serialized values (resetting to default) even though `[FormerlySerializedAs]` was added correctly. After inserting the attribute the file is now saved to disk immediately, so Unity recompiles the script with the attribute present and maps the old serialized data to the new field name. Previously the attribute stayed in the unsaved editor buffer while Visual Studio's rename engine had already written the rename-only script to disk, causing Unity to drop the reference.
