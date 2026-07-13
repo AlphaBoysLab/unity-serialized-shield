@@ -4,7 +4,7 @@
     <!-- Identity Id reused from the previously published extension so this updates
          the existing Marketplace listing (existing users upgrade to 2.0.0). -->
     <Identity Id="UnitySerializedShield.VisualStudio.80229c4b-82bf-41ef-b409-98eaaaff3e1c"
-              Version="2.1.2"
+              Version="2.1.3"
               Language="en-US"
               Publisher="AlphaBoysLab" />
     <DisplayName>UnitySerializedShield</DisplayName>

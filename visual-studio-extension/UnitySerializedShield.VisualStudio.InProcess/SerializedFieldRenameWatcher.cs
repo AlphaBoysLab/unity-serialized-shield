@@ -57,6 +57,14 @@ namespace UnitySerializedShield.VisualStudio.InProcess
         // detected, and apply exactly once afterwards so our attribute is the last
         // write and survives.
         private static readonly TimeSpan SettleDelay = TimeSpan.FromMilliseconds(750);
+
+        // After applying, the inline-rename session can STILL write the file once
+        // more (its own commit), overwriting our attribute — even when we already
+        // waited for changes to settle. So we verify after this delay and re-apply
+        // if our attribute was reverted, until it survives (or we hit the cap).
+        // The session's clobber is a one-time finalize, so a couple of passes win.
+        private static readonly TimeSpan VerifyDelay = TimeSpan.FromMilliseconds(1000);
+        private const int MaxSelfHealAttempts = 5;
         private readonly ConcurrentDictionary<DocumentId, PendingRename> pendingRenames = new();
 
         private sealed class PendingRename
@@ -176,7 +184,7 @@ namespace UnitySerializedShield.VisualStudio.InProcess
                 {
                     await Task.Delay(SettleDelay, token).ConfigureAwait(false);
                     pendingRenames.TryRemove(documentId, out _);
-                    await ProcessDocumentAsync(documentId, baseline);
+                    await SelfHealingApplyAsync(documentId, baseline);
                 }
                 catch (OperationCanceledException)
                 {
@@ -187,6 +195,61 @@ namespace UnitySerializedShield.VisualStudio.InProcess
                     DiagnosticLog.Write($"ScheduleProcessing threw: {exception}");
                 }
             });
+        }
+
+        // Applies the migration, then re-checks after a delay and re-applies if the
+        // inline-rename session's own commit overwrote our attribute. ProcessDocument
+        // is idempotent — once the attribute is present, detection returns nothing —
+        // so an extra pass is a no-op. This is what makes the attribute survive the
+        // session's post-apply finalize write (verified: the file was rewritten
+        // ~85-260 ms AFTER our apply, dropping the attribute).
+        private async Task SelfHealingApplyAsync(DocumentId documentId, Document baseline)
+        {
+            for (var attempt = 0; attempt < MaxSelfHealAttempts; attempt++)
+            {
+                await ProcessDocumentAsync(documentId, baseline);
+                await Task.Delay(VerifyDelay).ConfigureAwait(false);
+
+                if (await IsMigrationSatisfiedAsync(documentId, baseline))
+                {
+                    // The attribute is present (it survived) or there is nothing to
+                    // migrate — either way we are done.
+                    return;
+                }
+
+                DiagnosticLog.Write(
+                    $"Attribute was reverted after apply (attempt {attempt + 1}); re-applying.");
+            }
+
+            DiagnosticLog.Write(
+                $"Gave up after {MaxSelfHealAttempts} self-heal attempts; another component keeps reverting the attribute.");
+        }
+
+        // True when no serialized-field migration is still needed for the document —
+        // i.e. the attribute is already present, or there is no rename to protect.
+        private async Task<bool> IsMigrationSatisfiedAsync(DocumentId documentId, Document baseline)
+        {
+            var previousRoot = await baseline.GetSyntaxRootAsync().ConfigureAwait(false);
+            var previousModel = await baseline.GetSemanticModelAsync().ConfigureAwait(false);
+            var currentDocument = workspace.CurrentSolution.GetDocument(documentId);
+
+            if (previousRoot is null || currentDocument is null)
+            {
+                return true;
+            }
+
+            var currentRoot = await currentDocument.GetSyntaxRootAsync().ConfigureAwait(false);
+            var currentModel = await currentDocument.GetSemanticModelAsync().ConfigureAwait(false);
+
+            if (currentRoot is null)
+            {
+                return true;
+            }
+
+            var migratedRoot = SerializedFieldMigrator.Migrate(
+                previousRoot, currentRoot, previousModel, currentModel, out var renames);
+
+            return migratedRoot is null || renames.Count == 0;
         }
 
         private async Task ProcessDocumentAsync(DocumentId documentId, Document previousDocument)
