@@ -2,6 +2,62 @@
 
 All notable changes to UnitySerializedShield will be documented in this file.
 
+## 2.0.0
+
+Safety release addressing the 2026-07-12 audit (Part 3). Major version bump
+because the default behavior changes: the unreliable passive text-diff
+listener is now **off by default** in favor of the LSP-delegated
+`Rename Serialized Field` command (F2 / Rename Symbol), and the gating,
+offset-mapping and parsing logic is extracted into a pure, fully-tested
+module (`renameLogic.ts`).
+
+### Fixed
+
+- Document changes are classified before any action is taken: undo and redo
+  are never treated as renames (W-C3), multi-change transactions (including
+  multi-cursor typing) and the extension's own programmatic edits are
+  skipped (W-C1, W-C12), and single edits are debounced (W-C2). A passive
+  rename now only fires when exactly one serialized field changed name and
+  the old name no longer appears anywhere in code.
+- An old name surviving only in a comment or string no longer blocks a
+  rename, and the provider path maps insertion offsets back to pre-edit
+  coordinates so the attribute always lands on the correct line even when a
+  reference precedes the declaration (W-C4).
+- Parser hardening: generic field types containing commas
+  (`Dictionary<string, int>`, W-C7); expression-bodied properties and event
+  declarations are no longer treated as fields (W-C5); enclosing-type
+  resolution is brace-aware so a field after a nested type is attributed to
+  the correct type (W-C6); a comment line between an attribute and its field
+  no longer breaks association (W-C8); block comments and verbatim strings
+  are ignored (W-C9); `#if/#else/#endif` no longer produces phantom
+  duplicates (W-C10); `record` / `record struct` are supported (W-C16);
+  file-scoped namespaces and `[Serializable]` nested classes are handled;
+  BOM and majority line-ending detection are correct (W-R5).
+- `applyEdit` failure no longer advances the snapshot baseline, so a failed
+  edit is retried instead of permanently lost (W-C11). Change handling and
+  timers are exception-guarded (W-R2), and rename-delegation state is no
+  longer a naive global flag (W-R3).
+- Follow-up re-audit hardening: code inside string-interpolation holes
+  (`$"{speed}"`) is preserved by sanitization instead of being blanked as
+  string text, so a reference there is no longer missed when checking whether
+  an old name is fully gone (N1); attribute lists wrapped across multiple
+  lines (`[SerializeField,\n FormerlySerializedAs("x")]`) are now recognized so
+  the field stays protected (R3).
+
+### Added
+
+- Configuration surface: `unitySerializedShield.enabled`,
+  `enablePassiveRenameDetection` (off by default), `passiveDebounceMs`,
+  `enableLogging`, and `showStatusBarNotification`.
+- `renameLogic.ts` pure module plus `renameLogic.test.ts` and
+  `parser.test.ts` (45 host-free cases); the full suite passes in the VS
+  Code test host (63 tests).
+
+### Changed
+
+- The passive text-diff rename listener is disabled by default; the
+  LSP-delegated command path is now the primary, recommended flow.
+
 ## 1.1.0
 
 - Adds protection for **public** serialized fields that have no explicit `[SerializeField]` attribute. A public instance field inside a `MonoBehaviour`, `ScriptableObject`, `StateMachineBehaviour`, or a `[Serializable]` type is now recognized as Unity-serialized, so renaming it adds `[FormerlySerializedAs]` just like an explicit `[SerializeField]`.

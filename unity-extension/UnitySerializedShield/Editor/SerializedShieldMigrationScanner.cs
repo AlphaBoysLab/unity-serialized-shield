@@ -9,7 +9,10 @@ namespace AlphaBoysLab.SerializedShield.Editor
 {
     public static class SerializedShieldMigrationScanner
     {
-        private static readonly string[] VerificationExtensions = { ".unity", ".prefab", ".asset", ".anim", ".preset" };
+        // .controller (AnimatorController → StateMachineBehaviour) and .playable
+        // (Timeline) hold MonoBehaviour documents with real m_Script anchors and
+        // serialized fields, so they must be verified (and migrated) too (audit N1).
+        private static readonly string[] VerificationExtensions = { ".unity", ".prefab", ".asset", ".anim", ".preset", ".controller", ".playable" };
 
         public static List<SerializedShieldScriptInfo> FindScriptsWithFormerlySerializedAs()
         {
@@ -224,8 +227,10 @@ namespace AlphaBoysLab.SerializedShield.Editor
                 return options.IncludeScenes;
             }
 
-            if (extension == ".asset")
+            if (extension == ".asset" || extension == ".controller" || extension == ".playable")
             {
+                // .controller / .playable carry script-instance documents (audit N1);
+                // treat them like other non-scene, non-prefab serialized assets.
                 return options.IncludeAssetFiles;
             }
 

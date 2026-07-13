@@ -135,6 +135,52 @@ function blankCommentsAndStrings(text: string): string {
 		}
 	};
 
+	// Blanks an interpolated string span but PRESERVES the code inside each
+	// `{ … }` interpolation hole — that code is live and may reference a field
+	// (e.g. `$"{speed}"`). Blanking it would make identifierOccursInCode miss a
+	// real reference and wrongly accept a partial rename (audit VS Code N1).
+	// `{{` / `}}` are literal escaped braces and are blanked. Offsets are
+	// preserved exactly (every char is either spaced or left untouched).
+	const blankInterpolated = (from: number, to: number) => {
+		let cursor = from;
+		while (cursor < to) {
+			const character = text[cursor];
+			if (character === '{' && text[cursor + 1] === '{') {
+				blank(cursor, cursor + 2);
+				cursor += 2;
+				continue;
+			}
+			if (character === '}' && text[cursor + 1] === '}') {
+				blank(cursor, cursor + 2);
+				cursor += 2;
+				continue;
+			}
+			if (character === '{') {
+				blank(cursor, cursor + 1); // the brace itself is not code
+				cursor++;
+				let depth = 1;
+				while (cursor < to && depth > 0) {
+					const hole = text[cursor];
+					if (hole === '{') {
+						depth++;
+					} else if (hole === '}') {
+						depth--;
+						if (depth === 0) {
+							blank(cursor, cursor + 1);
+							cursor++;
+							break;
+						}
+					}
+					// Hole interior: leave the character untouched (it is code).
+					cursor++;
+				}
+				continue;
+			}
+			blank(cursor, cursor + 1); // literal text char
+			cursor++;
+		}
+	};
+
 	let index = 0;
 
 	while (index < length) {
@@ -211,7 +257,11 @@ function blankCommentsAndStrings(text: string): string {
 				}
 				end++;
 			}
-			blank(index, end);
+			if (character === '$' || next === '$') {
+				blankInterpolated(index, end); // $@"…" / @$"…"
+			} else {
+				blank(index, end);
+			}
 			index = end;
 			continue;
 		}
@@ -233,7 +283,11 @@ function blankCommentsAndStrings(text: string): string {
 				}
 				end++;
 			}
-			blank(index, end);
+			if (character === '$') {
+				blankInterpolated(index, end); // $"…"
+			} else {
+				blank(index, end);
+			}
 			index = end;
 			continue;
 		}

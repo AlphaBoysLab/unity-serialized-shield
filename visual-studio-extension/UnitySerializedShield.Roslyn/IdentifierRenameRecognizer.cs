@@ -100,6 +100,21 @@ namespace UnitySerializedShield.Roslyn
                 return previous.Text == current.Text;
             }
 
+            // An identifier token that did not change is always acceptable. This
+            // includes an unrelated identifier that merely shares a renamed field's
+            // old name (a method parameter, local, or a second type's field in the
+            // same file). Rename Symbol only rewrites the references of the one
+            // symbol it targets, so those unrelated occurrences legitimately keep
+            // the old name — requiring EVERY occurrence to change here would make a
+            // shadowing parameter or same-named sibling field silently disable the
+            // migration and lose serialized data (audit NEW-1 / the V-C1 class).
+            if (previous.Text == current.Text)
+            {
+                return true;
+            }
+
+            // A changed identifier is only acceptable when it is exactly one of the
+            // detected renames applied to this occurrence (old name -> new name).
             // ValueText strips a verbatim '@' prefix, so `@class` compares as
             // "class" — matching how the collector reports field names.
             var previousName = previous.ValueText;
@@ -107,15 +122,13 @@ namespace UnitySerializedShield.Roslyn
 
             foreach (var rename in renames)
             {
-                if (previousName == rename.PreviousName)
+                if (previousName == rename.PreviousName && currentName == rename.CurrentName)
                 {
-                    // EVERY occurrence of a renamed identifier must now carry the
-                    // new name; a partially applied substitution is manual typing.
-                    return currentName == rename.CurrentName;
+                    return true;
                 }
             }
 
-            return previous.Text == current.Text;
+            return false;
         }
     }
 }

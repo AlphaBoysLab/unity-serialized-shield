@@ -402,8 +402,81 @@ public class AuditRegressionTests
         Assert.True(IdentifierRenameRecognizer.IsRenameShaped(previous, current, renames));
     }
 
+    // NEW-1 (regression of the V-C1 data-loss class): Rename Symbol only rewrites
+    // the references of the one symbol it targets. An unrelated identifier that
+    // happens to share the field's old name (a method parameter here) legitimately
+    // keeps the old name after the rename. The shape gate must NOT treat that
+    // leftover as a partial substitution, or the migration is silently skipped and
+    // Unity drops the serialized value.
     [Fact]
-    public void RenameShapeRejectsPartiallyAppliedSubstitution()
+    public void MigratesWhenAnUnrelatedParameterSharesTheOldName()
+    {
+        var previous = Lines(
+            "using UnityEngine;",
+            "",
+            "public class Mover : MonoBehaviour",
+            "{",
+            "    [SerializeField] private float speed = 5f;",
+            "    public void SetSpeed(float speed) { this.speed = speed; }",
+            "}");
+        // Field 'speed' renamed to 'velocity' (declaration + this.speed reference);
+        // the SetSpeed parameter 'speed' is a different symbol and stays.
+        var current = Lines(
+            "using UnityEngine;",
+            "",
+            "public class Mover : MonoBehaviour",
+            "{",
+            "    [SerializeField] private float velocity = 5f;",
+            "    public void SetSpeed(float speed) { this.velocity = speed; }",
+            "}");
+        var renames = SerializedFieldMigrator.FindRenames(previous, current);
+
+        Assert.True(IdentifierRenameRecognizer.IsRenameShaped(previous, current, renames));
+        Assert.Contains("[FormerlySerializedAs(\"speed\")]", SerializedFieldMigrator.Migrate(previous, current));
+    }
+
+    // NEW-1: two components in the same file sharing a field name; renaming one
+    // must migrate even though the other still carries the old name.
+    [Fact]
+    public void MigratesWhenASecondTypeInTheFileSharesTheFieldName()
+    {
+        var previous = Lines(
+            "using UnityEngine;",
+            "",
+            "public class A : MonoBehaviour",
+            "{",
+            "    [SerializeField] private float speed = 1f;",
+            "}",
+            "",
+            "public class B : MonoBehaviour",
+            "{",
+            "    [SerializeField] private float speed = 2f;",
+            "}");
+        // Only A.speed is renamed; B.speed is a different symbol and stays.
+        var current = Lines(
+            "using UnityEngine;",
+            "",
+            "public class A : MonoBehaviour",
+            "{",
+            "    [SerializeField] private float velocity = 1f;",
+            "}",
+            "",
+            "public class B : MonoBehaviour",
+            "{",
+            "    [SerializeField] private float speed = 2f;",
+            "}");
+
+        var result = SerializedFieldMigrator.Migrate(previous, current);
+
+        Assert.Contains("[FormerlySerializedAs(\"speed\")]", result);
+        // B's field is untouched.
+        Assert.Contains("private float speed = 2f;", result);
+    }
+
+    // The shape gate still rejects an edit that changes anything besides applying a
+    // detected rename (here an extra statement is inserted alongside the rename).
+    [Fact]
+    public void RenameShapeRejectsRenameMixedWithAddedTokens()
     {
         var previous = Lines(
             "using UnityEngine;",
@@ -411,17 +484,15 @@ public class AuditRegressionTests
             "public class C : MonoBehaviour",
             "{",
             "    [SerializeField] private float speed = 1f;",
-            "    private void A() { speed += 1f; }",
+            "    private void A() { }",
             "}");
-        // Declaration renamed but the reference still uses the old name — manual
-        // typing, not Rename Symbol.
         var current = Lines(
             "using UnityEngine;",
             "",
             "public class C : MonoBehaviour",
             "{",
             "    [SerializeField] private float velocity = 1f;",
-            "    private void A() { speed += 1f; }",
+            "    private void A() { Debug.Log(velocity); }",
             "}");
         var renames = SerializedFieldMigrator.FindRenames(previous, current);
 

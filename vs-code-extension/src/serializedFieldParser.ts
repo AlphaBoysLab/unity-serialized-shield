@@ -209,6 +209,14 @@ function buildFieldKey(attributesText: string, modifiers: string, typeName: stri
 // insertion point stays on the topmost real attribute line.
 function collectAttributeLineIndexes(sanitizedLines: TextLine[], fieldLineIndex: number) {
 	const attributeLineIndexes: number[] = [];
+	// Count of ']' seen while walking upward that still await a matching '[' on a
+	// line further up. While > 0 we are inside a multi-line attribute list such as
+	//   [SerializeField,
+	//    FormerlySerializedAs("q")]
+	// whose continuation lines do not individually start with '[' / end with ']'
+	// (audit VS Code R3). Brackets inside comments/strings are already blanked by
+	// sanitization, so counting them here is safe.
+	let unclosed = 0;
 
 	for (let lineIndex = fieldLineIndex - 1; lineIndex >= 0; lineIndex--) {
 		const trimmedLine = sanitizedLines[lineIndex].text.trim();
@@ -217,12 +225,33 @@ function collectAttributeLineIndexes(sanitizedLines: TextLine[], fieldLineIndex:
 			continue;
 		}
 
-		if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
-			attributeLineIndexes.unshift(lineIndex);
-			continue;
+		const opens = (trimmedLine.match(/\[/g) || []).length;
+		const closes = (trimmedLine.match(/\]/g) || []).length;
+
+		if (unclosed === 0) {
+			// The line closest to the field must be the bottom of an attribute
+			// group (ends with ']'); a balanced line that is not a bracket group
+			// (e.g. `value = arr[0]`) is a statement, not an attribute.
+			if (!trimmedLine.endsWith(']')) {
+				break;
+			}
+			if (closes - opens === 0 && !trimmedLine.startsWith('[')) {
+				break;
+			}
 		}
 
-		break;
+		const nextUnclosed = unclosed + closes - opens;
+		if (nextUnclosed < 0) {
+			break;
+		}
+
+		unclosed = nextUnclosed;
+		attributeLineIndexes.unshift(lineIndex);
+	}
+
+	if (unclosed > 0) {
+		// Ran off the top still inside an unbalanced group — not a clean list.
+		return [];
 	}
 
 	return attributeLineIndexes;

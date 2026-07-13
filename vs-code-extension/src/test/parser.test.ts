@@ -37,6 +37,46 @@ suite('serializedFieldParser', () => {
 		assert.strictEqual(parseSerializedFields(text).length, 0);
 	});
 
+	// Audit VS Code R3: an attribute list wrapped across lines must still be
+	// recognized so the field stays protected.
+	test('parses a field whose attribute list wraps across lines', () => {
+		const text = [
+			'using UnityEngine;',
+			'using UnityEngine.Serialization;',
+			'',
+			'public class A : MonoBehaviour',
+			'{',
+			'	[SerializeField,',
+			'	 FormerlySerializedAs("q")]',
+			'	private int score = 1;',
+			'}',
+			'',
+		].join('\n');
+
+		const fields = parseSerializedFields(text);
+
+		assert.strictEqual(fields.length, 1);
+		assert.strictEqual(fields[0].name, 'score');
+	});
+
+	test('does not mistake a bracketed statement above a field for an attribute', () => {
+		const text = [
+			'using UnityEngine;',
+			'',
+			'public class A : MonoBehaviour',
+			'{',
+			'	private int Compute() { return data[0]; }',
+			'	[SerializeField] private int score = 1;',
+			'}',
+			'',
+		].join('\n');
+
+		// score is still parsed; the `data[0]` line is not swallowed as an attribute.
+		const fields = parseSerializedFields(text);
+		assert.strictEqual(fields.length, 1);
+		assert.strictEqual(fields[0].name, 'score');
+	});
+
 	test('does not treat expression-bodied properties as fields', () => {
 		const text = [
 			'using UnityEngine;',
@@ -303,6 +343,39 @@ suite('sanitizeSource', () => {
 		assert.ok(sanitized.includes('int first;'));
 		assert.ok(!sanitized.includes('int second;'));
 		assert.strictEqual(sanitized.length, text.length);
+	});
+
+	// Audit VS Code N1: code inside an interpolation hole is live and must survive
+	// (the braces themselves are blanked; only the hole's code is kept).
+	test('preserves code inside interpolation holes but blanks literal text', () => {
+		const text = 'void L() { Debug.Log($"total {speed} done"); }\n';
+		const sanitized = sanitizeSource(text);
+
+		assert.strictEqual(sanitized.length, text.length);
+		assert.ok(sanitized.includes('speed'), 'hole identifier kept');
+		assert.ok(!sanitized.includes('total'), 'literal string text blanked');
+		assert.ok(!sanitized.includes('done'), 'literal string text blanked');
+		// Only the hole occurrence of "speed" remains, at its original offset.
+		assert.strictEqual(sanitized.indexOf('speed'), text.indexOf('speed'));
+	});
+
+	test('preserves interpolation holes in verbatim and nested-brace holes', () => {
+		const text = 'var s = $@"x={obj.Value} y={dict[key]}";\n';
+		const sanitized = sanitizeSource(text);
+
+		assert.strictEqual(sanitized.length, text.length);
+		assert.ok(sanitized.includes('obj.Value'));
+		assert.ok(sanitized.includes('dict[key]'));
+		assert.ok(!sanitized.includes('x='), 'literal blanked');
+	});
+
+	test('escaped braces are not treated as interpolation holes', () => {
+		const text = 'var s = $"{{literal}} {speed}";\n';
+		const sanitized = sanitizeSource(text);
+
+		assert.strictEqual(sanitized.length, text.length);
+		assert.ok(!sanitized.includes('literal'), 'escaped {{ }} is literal text, blanked');
+		assert.ok(sanitized.includes('speed'), 'real hole kept');
 	});
 });
 

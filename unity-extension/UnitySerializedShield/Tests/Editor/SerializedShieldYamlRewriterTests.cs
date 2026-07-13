@@ -10,12 +10,17 @@ namespace AlphaBoysLab.SerializedShield.Editor.Tests
 
         private static List<SerializedShieldFieldMigration> Migration(string currentName, params string[] formerNames)
         {
+            return new List<SerializedShieldFieldMigration> { Field(currentName, formerNames) };
+        }
+
+        private static SerializedShieldFieldMigration Field(string currentName, params string[] formerNames)
+        {
             SerializedShieldFieldMigration migration = new SerializedShieldFieldMigration
             {
                 CurrentName = currentName
             };
             migration.FormerNames.AddRange(formerNames);
-            return new List<SerializedShieldFieldMigration> { migration };
+            return migration;
         }
 
         private static string ScriptComponentBlock(string guid, string body)
@@ -234,6 +239,52 @@ namespace AlphaBoysLab.SerializedShield.Editor.Tests
                 + "    value: 3\n";
             List<SerializedShieldYamlKeyReference> references = SerializedShieldYamlRewriter.FindPropertyPathReferences(
                 yaml, new HashSet<string> { "speed" });
+
+            Assert.AreEqual(2, references.Count);
+        }
+
+        [Test]
+        public void RecycledFieldNameDoesNotCrossWire()
+        {
+            // Audit N2: field A renamed damage->power while field B was renamed
+            // power->attackPower. An asset carrying only 'damage' must become 'power'
+            // (field A's data) and must NOT then be re-renamed to 'attackPower'.
+            string yaml = ScriptComponentBlock(ScriptGuid, "  damage: 42\n");
+            List<SerializedShieldFieldMigration> migrations = new List<SerializedShieldFieldMigration>
+            {
+                Field("power", "damage"),
+                Field("attackPower", "power"),
+            };
+
+            SerializedShieldYamlRewriteResult result = SerializedShieldYamlRewriter.RenameComponentKeys(
+                yaml, ScriptGuid, migrations);
+
+            StringAssert.Contains("  power: 42\n", result.Text);
+            StringAssert.DoesNotContain("attackPower", result.Text);
+            Assert.AreEqual(1, result.Renames.Count);
+        }
+
+        [Test]
+        public void NestedPropertyPathIsDetected()
+        {
+            // Audit N3: an override on a nested serializable field references the
+            // former name as a non-root path segment ("container.oldNested" and
+            // "items.Array.data[0].oldNested"); both must be detected as blockers.
+            string yaml = "--- !u!1001 &400\n"
+                + "PrefabInstance:\n"
+                + "  m_Modifications:\n"
+                + "  - target: {fileID: 123, guid: " + OtherGuid + ", type: 3}\n"
+                + "    propertyPath: container.oldNested\n"
+                + "    value: 7\n"
+                + "  - target: {fileID: 123, guid: " + OtherGuid + ", type: 3}\n"
+                + "    propertyPath: items.Array.data[0].oldNested\n"
+                + "    value: 8\n"
+                + "  - target: {fileID: 123, guid: " + OtherGuid + ", type: 3}\n"
+                + "    propertyPath: unrelated.field\n"
+                + "    value: 9\n";
+
+            List<SerializedShieldYamlKeyReference> references = SerializedShieldYamlRewriter.FindPropertyPathReferences(
+                yaml, new HashSet<string> { "oldNested" });
 
             Assert.AreEqual(2, references.Count);
         }

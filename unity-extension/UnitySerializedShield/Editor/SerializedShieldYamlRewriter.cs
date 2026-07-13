@@ -103,6 +103,13 @@ namespace AlphaBoysLab.SerializedShield.Editor
             List<string> lines = SplitLinesKeepingEndings(text);
             Regex scriptAnchorRegex = BuildScriptAnchorRegex(scriptGuid);
 
+            // Lines already rewritten by an earlier migration in this pass. Without
+            // this, recycling a field name (field A renamed damage->power while
+            // field B was renamed power->attackPower) lets migration B re-rename the
+            // "power" key migration A just produced, cross-wiring A's data into B
+            // (audit N2). A consumed line is invisible to every later migration.
+            HashSet<int> consumedLines = new HashSet<int>();
+
             foreach (KeyValuePair<int, int> documentRange in GetDocumentRanges(lines))
             {
                 int start = documentRange.Key;
@@ -120,7 +127,7 @@ namespace AlphaBoysLab.SerializedShield.Editor
                         continue;
                     }
 
-                    List<int> newKeyLines = FindTopLevelKeyLines(lines, start, end, migration.CurrentName);
+                    List<int> newKeyLines = FindTopLevelKeyLines(lines, start, end, migration.CurrentName, consumedLines);
 
                     if (newKeyLines.Count > 0)
                     {
@@ -130,7 +137,7 @@ namespace AlphaBoysLab.SerializedShield.Editor
                         foreach (string formerName in migration.FormerNames.Distinct())
                         {
                             if (IsRenamableFormerName(formerName, migration.CurrentName)
-                                && FindTopLevelKeyLines(lines, start, end, formerName).Count > 0)
+                                && FindTopLevelKeyLines(lines, start, end, formerName, consumedLines).Count > 0)
                             {
                                 result.Warnings.Add(string.Format(
                                     "Line {0}: block already contains '{1}' but also still contains old key '{2}'; not renamed.",
@@ -150,7 +157,7 @@ namespace AlphaBoysLab.SerializedShield.Editor
                             continue;
                         }
 
-                        List<int> oldKeyLines = FindTopLevelKeyLines(lines, start, end, formerName);
+                        List<int> oldKeyLines = FindTopLevelKeyLines(lines, start, end, formerName, consumedLines);
 
                         if (oldKeyLines.Count == 0)
                         {
@@ -160,6 +167,7 @@ namespace AlphaBoysLab.SerializedShield.Editor
                         foreach (int lineIndex in oldKeyLines)
                         {
                             lines[lineIndex] = ReplaceTopLevelKey(lines[lineIndex], migration.CurrentName);
+                            consumedLines.Add(lineIndex);
                             result.Renames.Add(new SerializedShieldYamlKeyRename
                             {
                                 LineNumber = lineIndex + 1,
@@ -280,13 +288,13 @@ namespace AlphaBoysLab.SerializedShield.Editor
                 }
 
                 string path = match.Groups["path"].Value;
-                string root = GetPathRoot(path);
+                string matchedSegment;
 
-                if (names.Contains(root))
+                if (PathReferencesName(path, names, out matchedSegment))
                 {
                     references.Add(new SerializedShieldYamlKeyReference
                     {
-                        Key = root,
+                        Key = matchedSegment,
                         LineNumber = lineIndex + 1,
                         Description = string.Format("propertyPath '{0}' at line {1}", path, lineIndex + 1)
                     });
@@ -326,13 +334,13 @@ namespace AlphaBoysLab.SerializedShield.Editor
                 }
 
                 string attribute = match.Groups["attr"].Value;
-                string root = GetPathRoot(attribute);
+                string matchedSegment;
 
-                if (names.Contains(root))
+                if (PathReferencesName(attribute, names, out matchedSegment))
                 {
                     references.Add(new SerializedShieldYamlKeyReference
                     {
-                        Key = root,
+                        Key = matchedSegment,
                         LineNumber = lineIndex + 1,
                         Description = string.Format("animation binding 'attribute: {0}' at line {1}", attribute, lineIndex + 1)
                     });
@@ -448,12 +456,18 @@ namespace AlphaBoysLab.SerializedShield.Editor
             return false;
         }
 
-        private static List<int> FindTopLevelKeyLines(List<string> lines, int start, int end, string key)
+        private static List<int> FindTopLevelKeyLines(List<string> lines, int start, int end, string key, HashSet<int> consumedLines)
         {
             List<int> matches = new List<int>();
 
             for (int lineIndex = start; lineIndex < end; lineIndex++)
             {
+                if (consumedLines.Contains(lineIndex))
+                {
+                    // Already rewritten by an earlier migration this pass (audit N2).
+                    continue;
+                }
+
                 string topLevelKey;
 
                 if (TryGetTopLevelKey(TrimLineEnding(lines[lineIndex]), out topLevelKey)
@@ -568,22 +582,50 @@ namespace AlphaBoysLab.SerializedShield.Editor
             return "  " + newKey + line.Substring(colonIndex);
         }
 
-        private static string GetPathRoot(string path)
+        /// <summary>
+        /// True if ANY dot-separated segment of a Unity propertyPath / animation
+        /// binding equals one of <paramref name="names"/>. Unity nests serialized
+        /// members as "container.oldNested" and arrays as "arr.Array.data[0].field",
+        /// so checking only the first segment would miss a renamed nested field and
+        /// let its attribute be removed while an override still uses the old name
+        /// (audit N3). Array-index brackets are stripped from each segment.
+        /// </summary>
+        private static bool PathReferencesName(string path, ICollection<string> names, out string matchedSegment)
         {
-            int cutIndex = path.Length;
+            matchedSegment = null;
 
-            for (int index = 0; index < path.Length; index++)
+            if (string.IsNullOrEmpty(path))
             {
-                char current = path[index];
-
-                if (current == '.' || current == '[')
-                {
-                    cutIndex = index;
-                    break;
-                }
+                return false;
             }
 
-            return path.Substring(0, cutIndex);
+            int segmentStart = 0;
+
+            for (int index = 0; index <= path.Length; index++)
+            {
+                if (index != path.Length && path[index] != '.')
+                {
+                    continue;
+                }
+
+                string segment = path.Substring(segmentStart, index - segmentStart);
+                int bracketIndex = segment.IndexOf('[');
+
+                if (bracketIndex >= 0)
+                {
+                    segment = segment.Substring(0, bracketIndex);
+                }
+
+                if (segment.Length > 0 && names.Contains(segment))
+                {
+                    matchedSegment = segment;
+                    return true;
+                }
+
+                segmentStart = index + 1;
+            }
+
+            return false;
         }
 
         private static string TrimLineEnding(string line)

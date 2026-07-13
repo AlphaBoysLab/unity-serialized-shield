@@ -62,6 +62,15 @@ previously "succeeded" silently in unsafe conditions now abort or refuse cleanup
 - Case-insensitive `.cs` matching; field-migration analysis only runs for scripts
   that contain the attribute (U-M8); backup list is cached instead of hitting the
   disk every repaint (U-M7).
+- Follow-up re-audit hardening: `.controller` (AnimatorController /
+  StateMachineBehaviour) and `.playable` (Timeline) assets are now scanned and
+  verified alongside scenes/prefabs/`.asset`, so their script-instance data is
+  migrated and can no longer be orphaned by attribute removal (N1). Field-name
+  recycling across a single migration pass (A `damage`→`power` while B
+  `power`→`attackPower`) can no longer cross-wire values: a key rewritten by one
+  migration is invisible to later ones (N2). Prefab-override and animation
+  bindings are matched on every `propertyPath` segment, not just the root, so a
+  renamed nested field is detected and blocks removal (N3).
 
 ### Added
 
