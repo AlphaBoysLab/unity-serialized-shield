@@ -2,6 +2,11 @@
 
 All notable changes to UnitySerializedShield Visual Studio will be documented in this file.
 
+## 2.1.1
+
+- **Fixed: renaming a serialized field did not actually protect it in Unity.** After adding `[FormerlySerializedAs]` the declaration file was only saved to disk when it happened to be clean beforehand — but an inline rename (F2 / Ctrl+R,R) always leaves the file dirty, so the attribute stayed in the editor buffer and never reached disk, and Unity never saw it. The edited declaration file is now always saved after the attribute is applied (the rename and the attribute are written together), restoring the guarantee from 2.0.1 that a later 2.1.0 change had regressed. Closed declaration files are written by the workspace apply itself.
+- Added a status-bar confirmation when an attribute is applied, so the migration is visible instead of silent.
+
 ## 2.1.0
 
 Safety and correctness release addressing the 2026-07-12 audit (Part 2).

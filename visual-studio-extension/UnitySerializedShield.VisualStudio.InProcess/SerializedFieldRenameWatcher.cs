@@ -247,22 +247,15 @@ namespace UnitySerializedShield.VisualStudio.InProcess
 
             var updatedSolution = freshDocument.Project.Solution.WithDocumentSyntaxRoot(documentId, migratedRoot);
 
-            // V-H7: capture the document's dirty state BEFORE our edit. We only
-            // save afterwards when the document was clean — saving then persists
-            // exactly our attribute. A document left dirty by the user (or by the
-            // rename itself) keeps the rename and the attribute together in the
-            // buffer, so one user save writes a consistent file; we never force
-            // out unrelated unsaved work.
             var openDocument = FindOpenDocument(freshDocument.FilePath);
-            var wasSavedBeforeEdit = openDocument?.Saved ?? false;
 
             documentsBeingEdited.TryAdd(documentId, 0);
 
-            bool applied;
+            var renameSummary = string.Join(", ", renames.Select(r => $"{r.PreviousName} -> {r.CurrentName}"));
 
             try
             {
-                applied = workspace.TryApplyChanges(updatedSolution);
+                var applied = workspace.TryApplyChanges(updatedSolution);
 
                 if (applied)
                 {
@@ -271,32 +264,35 @@ namespace UnitySerializedShield.VisualStudio.InProcess
                     RenameSignal.Disarm();
                     RecordMigrations(renames);
 
-                    // Persist the migrated file so Unity recompiles with the
-                    // attribute present — but only when saving cannot lose
-                    // anything (see above).
-                    if (openDocument is not null && wasSavedBeforeEdit)
+                    // Persist the declaration file so Unity recompiles with the
+                    // attribute present. Rename Symbol already dirtied this
+                    // document, so saving writes the rename AND our attribute
+                    // together as one consistent file. This must NOT be gated on
+                    // the document being clean beforehand: an inline rename always
+                    // leaves it dirty, and an open buffer's edits never reach disk
+                    // without a save — so Unity would otherwise never see the
+                    // attribute (the whole point of the tool). Closed files are
+                    // written to disk by TryApplyChanges itself. The signal is
+                    // already disarmed above, so the save's own change event is
+                    // ignored and cannot re-trigger a migration.
+                    if (openDocument is not null)
                     {
                         SaveDocument(openDocument);
                     }
-                    else if (openDocument is not null)
-                    {
-                        DiagnosticLog.Write(
-                            $"Left {freshDocument.FilePath} unsaved: it had unsaved changes before the migration edit.");
-                    }
+
+                    NotifyUser($"UnitySerializedShield added [FormerlySerializedAs] for {renameSummary}.");
                 }
                 else
                 {
                     // Fail LOUD: silently losing the migration attribute is the
                     // exact data-loss scenario this extension exists to prevent.
-                    var renameSummary = string.Join(", ", renames.Select(r => $"{r.PreviousName} -> {r.CurrentName}"));
                     NotifyUser(
                         $"UnitySerializedShield could not add [FormerlySerializedAs] for {renameSummary} in "
                         + $"{System.IO.Path.GetFileName(freshDocument.FilePath)} — add it manually before opening Unity.");
                 }
 
                 DiagnosticLog.Write(
-                    $"Applied [{string.Join(", ", renames.Select(r => $"{r.PreviousName}->{r.CurrentName}"))}] "
-                    + $"to {freshDocument.FilePath} (TryApplyChanges={applied}).");
+                    $"Applied [{renameSummary}] to {freshDocument.FilePath} (TryApplyChanges={applied}).");
             }
             finally
             {
