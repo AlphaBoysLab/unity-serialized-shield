@@ -198,6 +198,121 @@ suite('UnitySerializedShield', () => {
 	});
 });
 
+suite('UnitySerializedShield using-directive and alias handling', () => {
+	test('a using directive inside a comment does not suppress the real using insertion', () => {
+		const previousText = [
+			'using UnityEngine;',
+			'// using UnityEngine.Serialization;',
+			'',
+			'public class A : MonoBehaviour',
+			'{',
+			'	[SerializeField] private float speed = 1f;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace('float speed', 'float velocity');
+		const insertions = buildFormerlySerializedAsEdits(previousText, currentText);
+		const updatedText = applyInsertions(currentText, insertions);
+
+		assert.ok(insertions.some((insertion) => insertion.text.includes('using UnityEngine.Serialization;')));
+		assert.ok(/^using UnityEngine\.Serialization;$/m.test(updatedText));
+		assert.ok(updatedText.includes('[FormerlySerializedAs("speed")]'));
+	});
+
+	test('an existing FormerlySerializedAs via a namespace alias is not duplicated', () => {
+		const previousText = [
+			'using UnityEngine;',
+			'using US = UnityEngine.Serialization;',
+			'',
+			'public class A : MonoBehaviour',
+			'{',
+			'	[SerializeField] private float maxDistance = 100f;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace(
+			'	[SerializeField] private float maxDistance = 100f;',
+			'	[US.FormerlySerializedAs("maxDistance")]\n	[SerializeField] private float attackDistance = 100f;',
+		);
+
+		assert.deepStrictEqual(buildFormerlySerializedAsEdits(previousText, currentText), []);
+	});
+
+	test('an existing FormerlySerializedAs via an attribute alias is not duplicated', () => {
+		const previousText = [
+			'using UnityEngine;',
+			'using FSA = UnityEngine.Serialization.FormerlySerializedAsAttribute;',
+			'',
+			'public class A : MonoBehaviour',
+			'{',
+			'	[SerializeField] private float maxDistance = 100f;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace(
+			'	[SerializeField] private float maxDistance = 100f;',
+			'	[FSA("maxDistance")]\n	[SerializeField] private float attackDistance = 100f;',
+		);
+
+		assert.deepStrictEqual(buildFormerlySerializedAsEdits(previousText, currentText), []);
+	});
+
+	test('a fully qualified FormerlySerializedAs is not duplicated', () => {
+		const previousText = [
+			'using UnityEngine;',
+			'',
+			'public class A : MonoBehaviour',
+			'{',
+			'	[SerializeField] private float maxDistance = 100f;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace(
+			'	[SerializeField] private float maxDistance = 100f;',
+			'	[UnityEngine.Serialization.FormerlySerializedAs("maxDistance")]\n	[SerializeField] private float attackDistance = 100f;',
+		);
+
+		assert.deepStrictEqual(buildFormerlySerializedAsEdits(previousText, currentText), []);
+	});
+
+	test('an alias-only using still gets the plain using inserted (compilability)', () => {
+		const previousText = [
+			'using UnityEngine;',
+			'using US = UnityEngine.Serialization;',
+			'',
+			'public class A : MonoBehaviour',
+			'{',
+			'	[SerializeField] private float speed = 1f;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace('float speed', 'float velocity');
+		const insertions = buildFormerlySerializedAsEdits(previousText, currentText);
+
+		assert.ok(insertions.some((insertion) => insertion.text.includes('using UnityEngine.Serialization;')));
+	});
+
+	test('a chained rename keeps the original attribute and records the intermediate name', () => {
+		const previousText = [
+			'using UnityEngine;',
+			'using UnityEngine.Serialization;',
+			'',
+			'public class A : MonoBehaviour',
+			'{',
+			'	[FormerlySerializedAs("origName")]',
+			'	[SerializeField] private float second = 1f;',
+			'}',
+			'',
+		].join('\n');
+		const currentText = previousText.replace('float second', 'float third');
+		const updatedText = applyInsertions(currentText, buildFormerlySerializedAsEdits(previousText, currentText));
+
+		assert.ok(updatedText.includes('[FormerlySerializedAs("origName")]'));
+		assert.ok(updatedText.includes('[FormerlySerializedAs("second")]'));
+		assert.ok(updatedText.includes('float third = 1f;'));
+	});
+});
+
 function applyInsertions(text: string, insertions: TextInsertion[]) {
 	return [...insertions]
 		.sort((left, right) => right.offset - left.offset)

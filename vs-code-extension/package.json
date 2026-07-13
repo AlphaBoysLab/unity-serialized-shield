@@ -2,7 +2,7 @@
   "name": "unity-serialized-shield",
   "displayName": "UnitySerializedShield",
   "description": "Protects Unity serialized field renames with FormerlySerializedAs. Install the Unity package too before removing migration attributes.",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "icon": "images/icon.png",
   "publisher": "alphaboyslab",
   "license": "MIT",
@@ -56,6 +56,38 @@
           "group": "1_modification@1"
         }
       ]
+    },
+    "configuration": {
+      "title": "UnitySerializedShield",
+      "properties": {
+        "unitySerializedShield.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable UnitySerializedShield rename protection."
+        },
+        "unitySerializedShield.enablePassiveRenameDetection": {
+          "type": "boolean",
+          "default": false,
+          "description": "Experimental: watch document edits and infer serialized field renames by diffing text. Off by default because text diffing cannot reliably distinguish typing from renames; prefer the 'Rename Serialized Field' command. When enabled, undo/redo and multi-cursor edits are never treated as renames, and a diff is only accepted when exactly one serialized field changed name and the old name no longer appears in code."
+        },
+        "unitySerializedShield.passiveDebounceMs": {
+          "type": "number",
+          "default": 1500,
+          "minimum": 300,
+          "maximum": 10000,
+          "description": "How long the passive listener waits for edits to settle before checking for a rename."
+        },
+        "unitySerializedShield.enableLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Write a bounded diagnostic log to <home>/UnitySerializedShield/VSCodeExtension.log."
+        },
+        "unitySerializedShield.showStatusBarNotification": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a temporary status bar message when a [FormerlySerializedAs] attribute is added."
+        }
+      }
     }
   },
   "scripts": {
