@@ -79,10 +79,24 @@ Unity can now reconnect the old serialized value to the new field name.
 
 - Detects safe Unity `[SerializeField]` field renames.
 - Adds `[FormerlySerializedAs("oldName")]` above the renamed field.
+- Protects `[field: SerializeField]` auto-properties with `[field: FormerlySerializedAs("<OldName>k__BackingField")]`.
 - Adds `using UnityEngine.Serialization;` when needed.
 - Avoids duplicate migration attributes.
-- Ignores normal typing and only reacts to real Visual Studio rename edits.
-- Skips ambiguous cases instead of guessing.
+- Ignores normal typing and only reacts to the real Rename Symbol command.
+- Skips ambiguous cases (delete+add, reorder, mixed edits) instead of guessing.
+- Only runs in projects that reference UnityEngine; other C# solutions are never touched.
+- Never force-saves a document that has unsaved changes.
+
+## Disabling the Extension
+
+To turn the extension off without uninstalling it, create the DWORD registry value:
+
+```text
+HKEY_CURRENT_USER\Software\UnitySerializedShield
+    Enabled = 0
+```
+
+Set it back to `1` (or delete the value) to re-enable. The setting is picked up within about 30 seconds — no restart needed.
 
 ## Recommended Workflow
 

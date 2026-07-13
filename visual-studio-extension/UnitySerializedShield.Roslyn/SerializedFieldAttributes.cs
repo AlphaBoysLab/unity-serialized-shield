@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace UnitySerializedShield.Roslyn
 {
-    /// <summary>Shared helpers for reading attributes on a field declaration.</summary>
+    /// <summary>Shared helpers for reading attributes on a member declaration.</summary>
     internal static class SerializedFieldAttributes
     {
         public static string GetSimpleName(AttributeSyntax attribute)
@@ -23,10 +23,13 @@ namespace UnitySerializedShield.Roslyn
             };
         }
 
-        /// <summary>True if the field has <c>[FormerlySerializedAs("name")]</c>.</summary>
-        public static bool HasFormerlySerializedAs(FieldDeclarationSyntax field, string name)
+        /// <summary>
+        /// True if the member has <c>[FormerlySerializedAs("name")]</c> (any
+        /// attribute target, simple or fully qualified attribute name).
+        /// </summary>
+        public static bool HasFormerlySerializedAs(MemberDeclarationSyntax member, string name)
         {
-            foreach (var attribute in field.AttributeLists.SelectMany(list => list.Attributes))
+            foreach (var attribute in member.AttributeLists.SelectMany(list => list.Attributes))
             {
                 if (!UnitySerialization.FormerlySerializedAsAttributeNames.Contains(GetSimpleName(attribute)))
                 {

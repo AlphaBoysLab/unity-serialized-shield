@@ -11,6 +11,10 @@ namespace UnitySerializedShield.Roslyn
     /// Adds <c>[FormerlySerializedAs("old")]</c> attributes (and the
     /// <c>using UnityEngine.Serialization;</c> directive when missing) to a
     /// syntax tree for a set of detected renames, preserving indentation.
+    ///
+    /// For <c>[field: SerializeField]</c> auto-properties, the attribute is
+    /// emitted as <c>[field: FormerlySerializedAs("&lt;old&gt;k__BackingField")]</c>
+    /// because Unity serializes the compiler-generated backing field.
     /// </summary>
     internal static class FormerlySerializedAsRewriter
     {
@@ -24,16 +28,20 @@ namespace UnitySerializedShield.Roslyn
                 return root;
             }
 
-            var replacements = new Dictionary<FieldDeclarationSyntax, FieldDeclarationSyntax>();
+            var replacements = new Dictionary<MemberDeclarationSyntax, MemberDeclarationSyntax>();
 
             foreach (var rename in renames)
             {
-                var field = rename.CurrentField.Declaration;
+                var member = rename.CurrentField.Declaration;
 
                 // Multiple renames could target the same declaration; build on the
                 // previously transformed version so attributes stack correctly.
-                var source = replacements.TryGetValue(field, out var existing) ? existing : field;
-                replacements[field] = AddMigrationAttribute(source, rename.PreviousName, endOfLine);
+                var source = replacements.TryGetValue(member, out var existing) ? existing : member;
+                replacements[member] = AddMigrationAttribute(
+                    source,
+                    rename.CurrentField.GetSerializedName(rename.PreviousName),
+                    rename.CurrentField.IsAutoProperty,
+                    endOfLine);
             }
 
             var newRoot = root.ReplaceNodes(replacements.Keys, (original, _) => replacements[original]);
@@ -41,35 +49,47 @@ namespace UnitySerializedShield.Roslyn
             return EnsureSerializationUsing(newRoot, endOfLine);
         }
 
-        private static FieldDeclarationSyntax AddMigrationAttribute(
-            FieldDeclarationSyntax field,
-            string previousName,
+        private static MemberDeclarationSyntax AddMigrationAttribute(
+            MemberDeclarationSyntax member,
+            string previousSerializedName,
+            bool targetBackingField,
             string endOfLine)
         {
-            var leadingTrivia = field.GetLeadingTrivia();
+            var leadingTrivia = member.GetLeadingTrivia();
             var indent = leadingTrivia.LastOrDefault(t => t.IsKind(SyntaxKind.WhitespaceTrivia));
             var indentText = indent.IsKind(SyntaxKind.WhitespaceTrivia) ? indent.ToString() : string.Empty;
 
             var attributeArgument = AttributeArgument(
                 LiteralExpression(
                     SyntaxKind.StringLiteralExpression,
-                    Literal(previousName)));
+                    Literal(previousSerializedName)));
 
             var attribute = Attribute(
                 IdentifierName(UnitySerialization.FormerlySerializedAsAttributeShortName),
                 AttributeArgumentList(SingletonSeparatedList(attributeArgument)));
 
-            var attributeList = AttributeList(SingletonSeparatedList(attribute))
+            var attributeList = AttributeList(SingletonSeparatedList(attribute));
+
+            if (targetBackingField)
+            {
+                // `[field: ...]` — the attribute must reach the backing field.
+                attributeList = attributeList.WithTarget(
+                    AttributeTargetSpecifier(
+                        Token(SyntaxKind.FieldKeyword),
+                        Token(SyntaxKind.ColonToken).WithTrailingTrivia(Space)));
+            }
+
+            attributeList = attributeList
                 .WithLeadingTrivia(leadingTrivia)
                 .WithTrailingTrivia(EndOfLine(endOfLine), Whitespace(indentText));
 
-            // The new attribute list now owns the field's original leading trivia
-            // (newlines/comments) and re-emits the indentation, so the field itself
+            // The new attribute list now owns the member's original leading trivia
+            // (newlines/comments) and re-emits the indentation, so the member itself
             // starts with no leading trivia.
-            var fieldWithoutLeading = field.WithLeadingTrivia(SyntaxTriviaList.Empty);
+            var memberWithoutLeading = member.WithLeadingTrivia(SyntaxTriviaList.Empty);
 
-            return fieldWithoutLeading.WithAttributeLists(
-                fieldWithoutLeading.AttributeLists.Insert(0, attributeList));
+            return memberWithoutLeading.WithAttributeLists(
+                memberWithoutLeading.AttributeLists.Insert(0, attributeList));
         }
 
         private static SyntaxNode EnsureSerializationUsing(SyntaxNode root, string endOfLine)
@@ -79,10 +99,16 @@ namespace UnitySerializedShield.Roslyn
                 return root;
             }
 
+            // Only a plain `using UnityEngine.Serialization;` makes the SHORT
+            // attribute name resolvable. An alias (`using UES = ...;`) or a static
+            // using does NOT import the namespace, so it must not count — inserting
+            // the short name would then fail to compile (CS0246).
             var alreadyImported = compilationUnit
                 .DescendantNodes()
                 .OfType<UsingDirectiveSyntax>()
-                .Any(directive => directive.Name?.ToString() == UnitySerialization.SerializationNamespace);
+                .Any(directive => directive.Alias is null
+                    && directive.StaticKeyword.IsKind(SyntaxKind.None)
+                    && directive.Name?.ToString() == UnitySerialization.SerializationNamespace);
 
             if (alreadyImported)
             {

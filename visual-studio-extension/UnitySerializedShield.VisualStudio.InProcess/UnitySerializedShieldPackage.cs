@@ -19,7 +19,10 @@ namespace UnitySerializedShield.VisualStudio.InProcess
     /// It also arms <see cref="RenameSignal"/> from DTE command events so a rename is
     /// distinguished from typing WITHOUT depending on the MEF command handler — the
     /// package always loads (via its pkgdef), whereas MEF composition can be skipped
-    /// if the extension cache is stale.
+    /// if the extension cache is stale. Only the actual SYMBOL rename command arms
+    /// the signal (never File.Rename or other commands that merely contain
+    /// "Rename"), and Escape/Undo/Redo disarm it so a cancelled or reverted rename
+    /// can never leave a live trigger window behind.
     /// </summary>
     [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
     [Guid(PackageGuidString)]
@@ -28,10 +31,34 @@ namespace UnitySerializedShield.VisualStudio.InProcess
     {
         public const string PackageGuidString = "8f1d3c54-7a21-4b8e-9c33-1f5a2d7e9b40";
 
+        private enum CommandClass
+        {
+            None,
+            Rename,
+            Disarm,
+        }
+
+        // Exact command names. "Refactor.Rename" is the symbol rename (Ctrl+R,R /
+        // F2 / context menu); File.Rename and friends must NOT arm the signal.
+        private static readonly HashSet<string> RenameCommandNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Refactor.Rename",
+            "EditorContextMenus.CodeWindow.Rename",
+        };
+
+        // Commands that cancel or revert an in-flight rename: the signal must die
+        // with them so it cannot re-trigger on later edits (Esc-cancel, undo/redo).
+        private static readonly HashSet<string> DisarmCommandNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Edit.SelectionCancel",
+            "Edit.Undo",
+            "Edit.Redo",
+        };
+
         private SerializedFieldRenameWatcher? watcher;
         private EnvDTE.DTE? dte;
         private EnvDTE.CommandEvents? commandEvents;
-        private readonly Dictionary<string, bool> renameCommandCache = new();
+        private readonly Dictionary<string, CommandClass> commandClassCache = new Dictionary<string, CommandClass>();
 
         protected override async Task InitializeAsync(
             CancellationToken cancellationToken,
@@ -75,41 +102,97 @@ namespace UnitySerializedShield.VisualStudio.InProcess
 
         private void OnBeforeExecuteCommand(string guid, int id, object customIn, object customOut, ref bool cancelDefault)
         {
-            if (IsRenameCommand(guid, id))
+            // DTE command events are raised on the UI thread.
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            try
             {
-                RenameSignal.MarkInvoked();
-                DiagnosticLog.Write($"Rename command observed via DTE ({guid}:{id}); RenameSignal armed.");
+                switch (ClassifyCommand(guid, id))
+                {
+                    case CommandClass.Rename:
+                        RenameSignal.Arm(TryGetIdentifierAtCaret());
+                        DiagnosticLog.Write($"Rename command observed via DTE ({guid}:{id}); RenameSignal armed.");
+                        break;
+                    case CommandClass.Disarm:
+                        RenameSignal.Disarm();
+                        break;
+                }
+            }
+            catch (Exception exception)
+            {
+                DiagnosticLog.Write($"OnBeforeExecuteCommand threw: {exception}");
             }
         }
 
-        private bool IsRenameCommand(string guid, int id)
+        private CommandClass ClassifyCommand(string guid, int id)
         {
             var key = guid + ":" + id;
 
-            if (renameCommandCache.TryGetValue(key, out var cached))
+            if (commandClassCache.TryGetValue(key, out var cached))
             {
                 return cached;
             }
 
-            var isRename = false;
+            string name;
 
             try
             {
                 ThreadHelper.ThrowIfNotOnUIThread();
-                var name = dte?.Commands.Item(guid, id)?.Name ?? string.Empty;
-                isRename = name.IndexOf("Rename", StringComparison.OrdinalIgnoreCase) >= 0;
+                name = dte?.Commands.Item(guid, id)?.Name ?? string.Empty;
             }
             catch
             {
-                // Some commands cannot be resolved by name; treat them as non-rename.
+                // Some commands cannot be resolved by name. Treat this occurrence
+                // as non-rename but do NOT cache it: the failure may be transient
+                // (COM hiccup) and must not permanently mask a real command.
+                return CommandClass.None;
             }
 
-            renameCommandCache[key] = isRename;
-            return isRename;
+            var commandClass = CommandClass.None;
+
+            if (RenameCommandNames.Contains(name))
+            {
+                commandClass = CommandClass.Rename;
+            }
+            else if (DisarmCommandNames.Contains(name))
+            {
+                commandClass = CommandClass.Disarm;
+            }
+
+            commandClassCache[key] = commandClass;
+            return commandClass;
+        }
+
+        // Reads the identifier under the caret via DTE so the rename signal can be
+        // scoped to the symbol actually being renamed. Best effort — returns null
+        // when anything is unavailable.
+        private string? TryGetIdentifierAtCaret()
+        {
+            try
+            {
+                ThreadHelper.ThrowIfNotOnUIThread();
+
+                if (!(dte?.ActiveDocument?.Selection is EnvDTE.TextSelection selection))
+                {
+                    return null;
+                }
+
+                var point = selection.ActivePoint;
+                var line = point.CreateEditPoint().GetLines(point.Line, point.Line + 1);
+
+                return IdentifierTextUtility.GetIdentifierAt(line, point.LineCharOffset - 1);
+            }
+            catch (Exception exception)
+            {
+                DiagnosticLog.Write($"Could not read the identifier under the caret via DTE: {exception.Message}");
+                return null;
+            }
         }
 
         protected override void Dispose(bool disposing)
         {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
             if (disposing)
             {
                 if (commandEvents is not null)

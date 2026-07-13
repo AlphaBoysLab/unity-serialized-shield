@@ -19,10 +19,18 @@ namespace UnitySerializedShield.Roslyn
             var currentFields = SerializedFieldCollector.Collect(currentRoot, currentModel);
 
             var currentByKey = new Dictionary<string, SerializedFieldInfo>(System.StringComparer.Ordinal);
+            var previousNames = new HashSet<string>(System.StringComparer.Ordinal);
+            var currentNames = new HashSet<string>(System.StringComparer.Ordinal);
 
             foreach (var field in currentFields)
             {
                 currentByKey[BuildKey(field)] = field;
+                currentNames.Add(ScopedName(field));
+            }
+
+            foreach (var field in previousFields)
+            {
+                previousNames.Add(ScopedName(field));
             }
 
             var renames = new List<SerializedFieldRename>();
@@ -35,6 +43,17 @@ namespace UnitySerializedShield.Roslyn
                 }
 
                 if (current.Name == previous.Name)
+                {
+                    continue;
+                }
+
+                // A rename replaces the old name with the new one. If the OLD name
+                // still exists in the type, the fields were reordered or swapped,
+                // and if the NEW name already existed before the edit, a deleted
+                // field's data would be poured into an unrelated survivor. Both
+                // would migrate wrong data — skip them.
+                if (currentNames.Contains(previous.ContainingTypeKey + "::" + previous.Name)
+                    || previousNames.Contains(current.ContainingTypeKey + "::" + current.Name))
                 {
                     continue;
                 }
@@ -55,9 +74,16 @@ namespace UnitySerializedShield.Roslyn
         private static bool HasFormerlySerializedAsFor(SerializedFieldInfo field, string previousName)
         {
             // Re-collect intent: HasFormerlySerializedAsForName checks the *current*
-            // name; here we need the previous name specifically. Delegate to the
-            // collector's helper via a fresh scan of the declaration's attributes.
-            return SerializedFieldAttributes.HasFormerlySerializedAs(field.Declaration, previousName);
+            // name; here we need the previous name specifically (in its serialized
+            // form — backing-field syntax for auto-properties).
+            return SerializedFieldAttributes.HasFormerlySerializedAs(
+                field.Declaration,
+                field.GetSerializedName(previousName));
+        }
+
+        private static string ScopedName(SerializedFieldInfo field)
+        {
+            return field.ContainingTypeKey + "::" + field.Name;
         }
 
         private static string BuildKey(SerializedFieldInfo field)

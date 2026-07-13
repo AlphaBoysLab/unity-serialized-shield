@@ -2,6 +2,23 @@
 
 All notable changes to UnitySerializedShield Visual Studio will be documented in this file.
 
+## 2.1.0
+
+Safety and correctness release addressing the 2026-07-12 audit (Part 2).
+
+- **Fixed attribute stacking after Rename Symbol.** The rename signal is now one-shot: it is consumed as soon as a migration is applied and disarmed by Escape, Undo, or Redo, so typing on a field name within the rename window can no longer insert an attribute per keystroke. The signal is also scoped to the identifier the rename was invoked on.
+- **Fixed: an old field name appearing in a comment or string no longer disables protection.** Rename verification is now a token-level, trivia-ignoring comparison (Roslyn token streams) instead of a raw-text substitution check, so `// speed in m/s` or `Debug.Log("speed")` no longer blocks the migration of a `speed` rename.
+- **Fixed: `[SerializeField, HideInInspector]` fields are now protected.** Unity serializes such fields; `HideInInspector` was wrongly treated as a serialization opt-out.
+- **Fixed: deleting a field and adding a similar one, or swapping/reordering same-typed fields, is no longer misread as a rename.** The detector requires the old name to be gone and the new name to be genuinely new, and every code path (including the string API) now passes the rename-shape gate before an attribute is inserted.
+- **Fixed: user keystrokes typed during analysis can no longer be overwritten.** At apply time the document is re-verified against the live solution; if it changed during the semantic-model await, detection is recomputed against the fresh text instead of applying a stale tree.
+- **Fixed: undoing a rename no longer inserts an inverted junk attribute.** Besides the one-shot signal, the exact inverse of a just-applied migration is recognized and skipped.
+- **Fixed: only the actual Rename Symbol command arms detection.** `File.Rename` in Solution Explorer (or anything else merely containing "Rename") no longer opens a trigger window; transient command-lookup failures are no longer cached as permanent.
+- **New: `[field: SerializeField]` auto-properties are protected.** Renaming such a property adds `[field: FormerlySerializedAs("<OldName>k__BackingField")]`, matching how Unity serializes the backing field.
+- **New: Unity-project gating and an off-switch.** The watcher only acts in projects that reference UnityEngine, and the extension can be disabled by setting the DWORD registry value `HKCU\Software\UnitySerializedShield\Enabled` to `0`.
+- **Improved: alias-only `using UES = UnityEngine.Serialization;` no longer produces non-compiling output** — the real using directive is added so the inserted short attribute name always resolves. Verbatim identifiers (`@class`) and indirect Unity base classes are now handled. Migrated output is covered by a "compiles with zero errors" invariant test suite.
+- **Improved robustness:** documents are only auto-saved when they were saved before the migration edit (unsaved user work is never force-saved); a failed workspace apply is reported in the status bar instead of silently dropping protection; the workspace event handler is fully exception-guarded; detection runs off the UI thread and the cheap rename-signal check runs before any solution diff is materialized; the diagnostic log is size-bounded with rotation; rename-window timing uses a monotonic clock.
+- Removed the dead `UnitySerializedShield.Core`, `UnitySerializedShield.Core.Tests`, and `UnitySerializedShield.VisualStudio` project remnants. Test coverage grew from 20 to 53 tests, including negative tests (delete+add, swap/reorder), case-only rename pins, and semantic-model overload tests.
+
 ## 2.0.2
 
 - Makes rename detection robust against stale extension/MEF caches. The Rename command is now recognized from DTE command events inside the auto-loaded package (which always loads via its pkgdef), in addition to the MEF command handler. Previously, if Visual Studio's MEF catalog skipped the command handler, a single-field Rename Symbol would not be recognized and no `[FormerlySerializedAs]` was added.

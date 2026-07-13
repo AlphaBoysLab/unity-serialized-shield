@@ -10,9 +10,13 @@ namespace UnitySerializedShield.Roslyn
 
     /// <summary>
     /// Public entry point for Roslyn-based serialized-field rename protection.
+    /// This is the complete, pure "is this edit a migratable rename?" decision
+    /// the VSIX host relies on, so it is fully testable without Visual Studio.
     ///
     /// Given a document's syntax before and after an edit, it detects renamed
-    /// Unity-serialized fields and returns the new source with
+    /// Unity-serialized fields, verifies the edit is genuinely rename-shaped
+    /// (a whole-identifier substitution and nothing else — see
+    /// <see cref="IdentifierRenameRecognizer"/>), and returns the new source with
     /// <c>[FormerlySerializedAs("old")]</c> applied at each declaration.
     ///
     /// The semantic-model overloads are used by the in-process VSIX host, where a
@@ -35,7 +39,8 @@ namespace UnitySerializedShield.Roslyn
 
         /// <summary>
         /// Detects renames and applies migration attributes at the syntax level.
-        /// Returns the new root, or <c>null</c> when there was nothing to change.
+        /// Returns the new root, or <c>null</c> when there was nothing to change
+        /// or when the edit was not a clean rename (so nothing may be guessed).
         /// </summary>
         public static SyntaxNode? Migrate(
             SyntaxNode previousRoot,
@@ -50,6 +55,15 @@ namespace UnitySerializedShield.Roslyn
                 .ToList();
 
             if (detected.Count == 0)
+            {
+                return null;
+            }
+
+            // Gate EVERY caller (including the string API) on the rename shape:
+            // never insert an attribute unless the edit is verifiably a pure
+            // whole-identifier substitution. This blocks delete+add, reorder,
+            // and mixed edits from being misread as renames.
+            if (!IdentifierRenameRecognizer.IsRenameShaped(previousRoot, currentRoot, renames))
             {
                 return null;
             }

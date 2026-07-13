@@ -18,12 +18,15 @@ namespace UnitySerializedShield.Roslyn
             "SerializeReferenceAttribute",
         };
 
-        /// <summary>Attribute simple names that opt a field out of serialization.</summary>
+        /// <summary>
+        /// Attribute simple names that opt a field out of serialization.
+        /// Note: [HideInInspector] must NOT be listed here — Unity still serializes
+        /// [SerializeField, HideInInspector] fields, so they need rename protection.
+        /// </summary>
         public static readonly HashSet<string> NonSerializedAttributeNames = new(System.StringComparer.Ordinal)
         {
             "NonSerialized",
             "NonSerializedAttribute",
-            "HideInInspector", // does not stop serialization, but kept for future use
         };
 
         /// <summary>The migration attribute simple names.</summary>

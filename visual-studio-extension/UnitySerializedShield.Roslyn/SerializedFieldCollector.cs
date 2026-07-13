@@ -7,7 +7,9 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace UnitySerializedShield.Roslyn
 {
     /// <summary>
-    /// Walks a syntax tree and returns the Unity-serialized fields in it.
+    /// Walks a syntax tree and returns the Unity-serialized members in it:
+    /// serialized field declarations and <c>[field: SerializeField]</c>
+    /// auto-properties (whose backing field Unity serializes).
     ///
     /// Detection is syntactic so it works without referenced Unity assemblies,
     /// but an optional <see cref="SemanticModel"/> is used to confirm the
@@ -23,9 +25,30 @@ namespace UnitySerializedShield.Roslyn
             var results = new List<SerializedFieldInfo>();
             var groupCounters = new Dictionary<string, int>(System.StringComparer.Ordinal);
 
-            foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>())
+            foreach (var member in root.DescendantNodes().OfType<MemberDeclarationSyntax>())
             {
-                if (!TryDescribe(field, semanticModel, out var name, out var containingTypeKey, out var matchKeyBase, out var hasFsa))
+                bool described;
+                string name;
+                string containingTypeKey;
+                string matchKeyBase;
+                bool hasFsa;
+                bool isAutoProperty;
+
+                switch (member)
+                {
+                    case FieldDeclarationSyntax field:
+                        described = TryDescribeField(field, semanticModel, out name, out containingTypeKey, out matchKeyBase, out hasFsa);
+                        isAutoProperty = false;
+                        break;
+                    case PropertyDeclarationSyntax property:
+                        described = TryDescribeAutoProperty(property, out name, out containingTypeKey, out matchKeyBase, out hasFsa);
+                        isAutoProperty = true;
+                        break;
+                    default:
+                        continue;
+                }
+
+                if (!described)
                 {
                     continue;
                 }
@@ -35,19 +58,19 @@ namespace UnitySerializedShield.Roslyn
                 groupCounters[groupKey] = ordinal + 1;
 
                 results.Add(new SerializedFieldInfo(
-                    field,
-                    field.Declaration.Variables[0],
+                    member,
                     name,
                     containingTypeKey,
                     matchKeyBase,
                     ordinal,
-                    hasFsa));
+                    hasFsa,
+                    isAutoProperty));
             }
 
             return results;
         }
 
-        private static bool TryDescribe(
+        private static bool TryDescribeField(
             FieldDeclarationSyntax field,
             SemanticModel? semanticModel,
             out string name,
@@ -115,6 +138,64 @@ namespace UnitySerializedShield.Roslyn
             return true;
         }
 
+        private static bool TryDescribeAutoProperty(
+            PropertyDeclarationSyntax property,
+            out string name,
+            out string containingTypeKey,
+            out string matchKey,
+            out bool hasFormerlySerializedAsForName)
+        {
+            name = string.Empty;
+            containingTypeKey = string.Empty;
+            matchKey = string.Empty;
+            hasFormerlySerializedAsForName = false;
+
+            if (property.Modifiers.Any(SyntaxKind.StaticKeyword))
+            {
+                return false;
+            }
+
+            // Only auto-properties have a compiler-generated backing field.
+            if (property.ExpressionBody is not null
+                || property.AccessorList is null
+                || property.AccessorList.Accessors.Any(a => a.Body is not null || a.ExpressionBody is not null))
+            {
+                return false;
+            }
+
+            // Unity serializes the backing field only when [field: SerializeField]
+            // (or SerializeReference) targets it explicitly.
+            var fieldTargetedNames = property.AttributeLists
+                .Where(list => list.Target?.Identifier.IsKind(SyntaxKind.FieldKeyword) ?? false)
+                .SelectMany(list => list.Attributes)
+                .Select(SerializedFieldAttributes.GetSimpleName)
+                .ToList();
+
+            if (!fieldTargetedNames.Any(UnitySerialization.SerializeFieldAttributeNames.Contains)
+                || fieldTargetedNames.Any(UnitySerialization.NonSerializedAttributeNames.Contains))
+            {
+                return false;
+            }
+
+            name = property.Identifier.ValueText;
+            containingTypeKey = GetContainingTypeKey(property);
+
+            var allAttributeNames = property.AttributeLists
+                .SelectMany(list => list.Attributes)
+                .Select(SerializedFieldAttributes.GetSimpleName);
+            var typeText = Normalize(property.Type.ToString());
+            var modifierText = Normalize(string.Join(" ", property.Modifiers.Select(m => m.ValueText)));
+            var attributeText = Normalize(string.Join(",", allAttributeNames
+                .Where(n => !UnitySerialization.FormerlySerializedAsAttributeNames.Contains(n))
+                .OrderBy(n => n, System.StringComparer.Ordinal)));
+            matchKey = "property|" + typeText + "|" + modifierText + "|" + attributeText;
+
+            hasFormerlySerializedAsForName = SerializedFieldAttributes.HasFormerlySerializedAs(
+                property,
+                "<" + name + ">k__BackingField");
+            return true;
+        }
+
         private static bool IsInSerializableUnityType(FieldDeclarationSyntax field, SemanticModel? semanticModel)
         {
             var typeDeclaration = field.FirstAncestorOrSelf<TypeDeclarationSyntax>();
@@ -126,10 +207,19 @@ namespace UnitySerializedShield.Roslyn
 
             // Semantic confirmation when a model is available (most accurate).
             if (semanticModel is not null
+                && semanticModel.SyntaxTree == typeDeclaration.SyntaxTree
                 && semanticModel.GetDeclaredSymbol(typeDeclaration) is INamedTypeSymbol typeSymbol)
             {
+                var sawErrorType = false;
+
                 for (var baseType = typeSymbol.BaseType; baseType is not null; baseType = baseType.BaseType)
                 {
+                    if (baseType.TypeKind == TypeKind.Error)
+                    {
+                        sawErrorType = true;
+                        break;
+                    }
+
                     if (UnitySerialization.SerializableUnityBaseMetadataNames.Contains(baseType.ToDisplayString()))
                     {
                         return true;
@@ -140,24 +230,47 @@ namespace UnitySerializedShield.Roslyn
                 {
                     return true;
                 }
+
+                // The whole base chain resolved and contains no Unity base: trust
+                // the semantic answer instead of the permissive syntactic guess.
+                if (!sawErrorType)
+                {
+                    return HasSerializableAttributeSyntax(typeDeclaration);
+                }
             }
 
-            // Syntactic fallback: base list names or [Serializable] on the type.
+            // Syntactic fallback: a known Unity base name, or — permissively — any
+            // unrecognized base class, which may derive from a Unity base declared
+            // in another file that a syntax-only view cannot see (interfaces are
+            // excluded by the I-prefix convention).
             if (typeDeclaration.BaseList is not null)
             {
                 foreach (var baseType in typeDeclaration.BaseList.Types)
                 {
-                    if (UnitySerialization.SerializableUnityBaseTypeNames.Contains(GetSimpleTypeName(baseType.Type)))
+                    var simpleName = GetSimpleTypeName(baseType.Type);
+
+                    if (UnitySerialization.SerializableUnityBaseTypeNames.Contains(simpleName)
+                        || !LooksLikeInterfaceName(simpleName))
                     {
                         return true;
                     }
                 }
             }
 
+            return HasSerializableAttributeSyntax(typeDeclaration);
+        }
+
+        private static bool HasSerializableAttributeSyntax(TypeDeclarationSyntax typeDeclaration)
+        {
             return typeDeclaration.AttributeLists
                 .SelectMany(list => list.Attributes)
                 .Select(SerializedFieldAttributes.GetSimpleName)
                 .Any(n => n is "Serializable" or "SerializableAttribute");
+        }
+
+        private static bool LooksLikeInterfaceName(string name)
+        {
+            return name.Length >= 2 && name[0] == 'I' && char.IsUpper(name[1]);
         }
 
         private static bool HasSerializableAttributeSymbol(INamedTypeSymbol typeSymbol)
