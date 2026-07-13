@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.VisualStudio.LanguageServices;
@@ -47,6 +48,23 @@ namespace UnitySerializedShield.VisualStudio.InProcess
         private readonly object recentMigrationsGate = new object();
         private readonly List<(string PreviousName, string CurrentName, TimeSpan At)> recentMigrations = new();
 
+        // Per-document settle debounce. A live inline-rename session fires many
+        // workspace changes and then finalizes by writing the file ITSELF a beat
+        // later (~85 ms observed); applying our attribute during the session lets
+        // that finalize clobber it — the rename persists but our attribute is
+        // silently dropped. We therefore wait for edits to settle (the session to
+        // commit), keep the PRE-rename baseline so the full rename is still
+        // detected, and apply exactly once afterwards so our attribute is the last
+        // write and survives.
+        private static readonly TimeSpan SettleDelay = TimeSpan.FromMilliseconds(750);
+        private readonly ConcurrentDictionary<DocumentId, PendingRename> pendingRenames = new();
+
+        private sealed class PendingRename
+        {
+            public Document PreviousDocument = null!;
+            public CancellationTokenSource Cancellation = null!;
+        }
+
         public SerializedFieldRenameWatcher(VisualStudioWorkspace workspace, JoinableTaskFactory joinableTaskFactory)
         {
             this.workspace = workspace;
@@ -55,7 +73,17 @@ namespace UnitySerializedShield.VisualStudio.InProcess
 
         public void Start() => workspace.WorkspaceChanged += OnWorkspaceChanged;
 
-        public void Dispose() => workspace.WorkspaceChanged -= OnWorkspaceChanged;
+        public void Dispose()
+        {
+            workspace.WorkspaceChanged -= OnWorkspaceChanged;
+
+            foreach (var pending in pendingRenames.Values)
+            {
+                pending.Cancellation.Cancel();
+            }
+
+            pendingRenames.Clear();
+        }
 
         // Inline rename can take time to commit after F2 is pressed, so allow a
         // generous window between the rename command and the resulting edit. The
@@ -117,21 +145,48 @@ namespace UnitySerializedShield.VisualStudio.InProcess
                     continue;
                 }
 
-                var capturedId = documentId;
-
-                // Fire and forget; failures must never disrupt the editor.
-                _ = joinableTaskFactory.RunAsync(async () =>
-                {
-                    try
-                    {
-                        await ProcessDocumentAsync(capturedId, previousDocument);
-                    }
-                    catch (Exception exception)
-                    {
-                        DiagnosticLog.Write($"ProcessDocument threw: {exception}");
-                    }
-                });
+                ScheduleProcessing(documentId, previousDocument);
             }
+        }
+
+        // Debounces bursts of changes for a document: waits for edits to settle so
+        // the inline-rename session has committed BEFORE we add the attribute, then
+        // applies once. Keeps the earliest (pre-rename) baseline across the burst.
+        private void ScheduleProcessing(DocumentId documentId, Document previousDocument)
+        {
+            var cancellation = new CancellationTokenSource();
+
+            var pending = pendingRenames.AddOrUpdate(
+                documentId,
+                _ => new PendingRename { PreviousDocument = previousDocument, Cancellation = cancellation },
+                (_, existing) =>
+                {
+                    // A newer change arrived: reset the settle timer but keep the
+                    // original pre-rename baseline.
+                    existing.Cancellation.Cancel();
+                    return new PendingRename { PreviousDocument = existing.PreviousDocument, Cancellation = cancellation };
+                });
+
+            var baseline = pending.PreviousDocument;
+            var token = cancellation.Token;
+
+            _ = joinableTaskFactory.RunAsync(async () =>
+            {
+                try
+                {
+                    await Task.Delay(SettleDelay, token).ConfigureAwait(false);
+                    pendingRenames.TryRemove(documentId, out _);
+                    await ProcessDocumentAsync(documentId, baseline);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Superseded by a newer change; that change's task will run.
+                }
+                catch (Exception exception)
+                {
+                    DiagnosticLog.Write($"ScheduleProcessing threw: {exception}");
+                }
+            });
         }
 
         private async Task ProcessDocumentAsync(DocumentId documentId, Document previousDocument)

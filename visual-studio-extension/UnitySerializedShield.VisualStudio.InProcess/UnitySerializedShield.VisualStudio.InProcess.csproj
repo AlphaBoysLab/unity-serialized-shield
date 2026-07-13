@@ -40,7 +40,7 @@
     <DeployExtension>true</DeployExtension>
     <!-- Versioned output name so the publish artifact is identifiable. Keep in sync
          with the Version in source.extension.vsixmanifest. -->
-    <TargetVsixContainerName>UnitySerializedShield.VisualStudio_v2.1.1.vsix</TargetVsixContainerName>
+    <TargetVsixContainerName>UnitySerializedShield.VisualStudio_v2.1.2.vsix</TargetVsixContainerName>
 
     <!-- F5 launches an experimental VS instance with the extension deployed. -->
     <StartAction>Program</StartAction>
