@@ -9,9 +9,13 @@ namespace AlphaBoysLab.SerializedShield.Editor
 {
     public sealed class SerializedShieldMigrationWindow : EditorWindow
     {
+        private const string PrefsPrefix = "AlphaBoysLab.SerializedShield.";
+        private const int MaxBackupSessionsShown = 5;
+
         private readonly SerializedShieldMigrationOptions options = new SerializedShieldMigrationOptions();
         private readonly Dictionary<string, List<string>> previewsByScriptPath = new Dictionary<string, List<string>>();
         private List<SerializedShieldScriptInfo> scripts = new List<SerializedShieldScriptInfo>();
+        private List<string> backupSessionFiles = new List<string>();
         private Vector2 scrollPosition;
         private bool showProjectScripts = true;
         private bool showPackageScripts = true;
@@ -26,14 +30,16 @@ namespace AlphaBoysLab.SerializedShield.Editor
 
         private void OnEnable()
         {
+            LoadOptions();
             RefreshScriptList();
+            RefreshBackupList();
         }
 
         private void OnGUI()
         {
             EditorGUILayout.LabelField("SerializedShield Migration", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "This tool reserializes Unity assets that reference scripts containing FormerlySerializedAs, then optionally removes those attributes from the scripts. Keep version control clean before running a migration.",
+                "This tool reserializes Unity assets that reference scripts containing FormerlySerializedAs, then optionally removes those attributes from the scripts. Attributes are only removed when a verification pass confirms the old names no longer appear in any covered serialized file. Keep version control clean before running a migration.",
                 MessageType.Info);
 
             DrawOptions();
@@ -53,11 +59,25 @@ namespace AlphaBoysLab.SerializedShield.Editor
         private void DrawOptions()
         {
             EditorGUILayout.LabelField("Migration Options", EditorStyles.boldLabel);
+            EditorGUI.BeginChangeCheck();
             options.IncludePrefabs = EditorGUILayout.ToggleLeft("Include prefab assets", options.IncludePrefabs);
             options.IncludeScenes = EditorGUILayout.ToggleLeft("Include scene files", options.IncludeScenes);
             options.IncludeAssetFiles = EditorGUILayout.ToggleLeft("Include ScriptableObject / .asset files", options.IncludeAssetFiles);
             options.CreateBackup = EditorGUILayout.ToggleLeft("Create backup before migration", options.CreateBackup);
-            options.RemoveAttributesAfterMigration = EditorGUILayout.ToggleLeft("Remove FormerlySerializedAs attributes after migration", options.RemoveAttributesAfterMigration);
+            options.RemoveAttributesAfterMigration = EditorGUILayout.ToggleLeft("Remove FormerlySerializedAs attributes after verified migration", options.RemoveAttributesAfterMigration);
+
+            if (EditorGUI.EndChangeCheck())
+            {
+                SaveOptions();
+            }
+
+            if (options.RemoveAttributesAfterMigration
+                && (!options.IncludePrefabs || !options.IncludeScenes || !options.IncludeAssetFiles))
+            {
+                EditorGUILayout.HelpBox(
+                    "Attribute removal requires prefabs, scenes, and .asset files to all be included; otherwise removal is refused after migration.",
+                    MessageType.Warning);
+            }
         }
 
         private void DrawToolbar(List<SerializedShieldScriptInfo> visibleScripts)
@@ -67,6 +87,7 @@ namespace AlphaBoysLab.SerializedShield.Editor
             if (GUILayout.Button("Scan"))
             {
                 RefreshScriptList();
+                RefreshBackupList();
             }
 
             using (new EditorGUI.DisabledScope(visibleScripts.Count == 0))
@@ -130,13 +151,44 @@ namespace AlphaBoysLab.SerializedShield.Editor
             EditorGUILayout.SelectableLabel(script.ScriptPath, GUILayout.Height(EditorGUIUtility.singleLineHeight));
             EditorGUILayout.LabelField("FormerlySerializedAs count", script.AttributeCount.ToString());
             EditorGUILayout.LabelField("Detected field migrations", script.FieldMigrations.Count.ToString());
-            EditorGUILayout.LabelField("Old names: " + string.Join(", ", script.FormerNames.Distinct().ToArray()), EditorStyles.wordWrappedLabel);
+
+            foreach (SerializedShieldFieldMigration migration in script.FieldMigrations)
+            {
+                EditorGUILayout.LabelField(
+                    string.Format(
+                        "  {0} -> {1}",
+                        string.Join(", ", migration.FormerNames.Distinct().ToArray()),
+                        migration.CurrentName),
+                    EditorStyles.miniLabel);
+            }
+
+            List<string> unmappedNames = script.FormerNames
+                .Distinct()
+                .Where(name => !script.FieldMigrations.Any(migration => migration.FormerNames.Contains(name)))
+                .ToList();
+
+            if (unmappedNames.Count > 0)
+            {
+                EditorGUILayout.LabelField(
+                    "  Unmapped old names (Unity reserialize still migrates them): " + string.Join(", ", unmappedNames.ToArray()),
+                    EditorStyles.wordWrappedMiniLabel);
+            }
+
+            foreach (string warning in script.Warnings)
+            {
+                EditorGUILayout.HelpBox(warning, MessageType.Warning);
+            }
 
             EditorGUILayout.BeginHorizontal();
 
             if (GUILayout.Button("Preview References"))
             {
                 PreviewReferences(script);
+            }
+
+            if (GUILayout.Button("Dry Run"))
+            {
+                DryRunScript(script);
             }
 
             if (GUILayout.Button("Migrate / Serialize"))
@@ -168,23 +220,45 @@ namespace AlphaBoysLab.SerializedShield.Editor
 
         private void DrawBackups()
         {
-            List<string> sessionFiles = SerializedShieldMigrationBackup.GetSessionFiles();
-
+            EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Backups", EditorStyles.boldLabel);
 
-            if (sessionFiles.Count == 0)
+            if (GUILayout.Button("Refresh", GUILayout.Width(70)))
+            {
+                RefreshBackupList();
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            if (backupSessionFiles.Count == 0)
             {
                 EditorGUILayout.LabelField("No backup sessions found.", EditorStyles.miniLabel);
                 return;
             }
 
-            string latestSession = sessionFiles[0];
-            EditorGUILayout.SelectableLabel(latestSession, GUILayout.Height(EditorGUIUtility.singleLineHeight));
-
-            if (GUILayout.Button("Restore Latest Backup"))
+            foreach (string sessionFile in backupSessionFiles.Take(MaxBackupSessionsShown))
             {
-                RestoreBackup(latestSession);
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.SelectableLabel(sessionFile, GUILayout.Height(EditorGUIUtility.singleLineHeight));
+
+                if (GUILayout.Button("Restore", GUILayout.Width(70)))
+                {
+                    RestoreBackup(sessionFile);
+                }
+
+                EditorGUILayout.EndHorizontal();
             }
+
+            if (backupSessionFiles.Count > MaxBackupSessionsShown)
+            {
+                EditorGUILayout.LabelField(
+                    string.Format("  ...and {0} older session(s) in {1}", backupSessionFiles.Count - MaxBackupSessionsShown, SerializedShieldMigrationBackup.GetBackupRoot()),
+                    EditorStyles.miniLabel);
+            }
+
+            EditorGUILayout.LabelField(
+                "Backups are never pruned automatically; delete old session folders manually and add the backup folder to your VCS ignore file.",
+                EditorStyles.wordWrappedMiniLabel);
         }
 
         private void RefreshScriptList()
@@ -195,6 +269,12 @@ namespace AlphaBoysLab.SerializedShield.Editor
             Repaint();
         }
 
+        private void RefreshBackupList()
+        {
+            // Cached so OnGUI never touches the disk per repaint (audit U-M7).
+            backupSessionFiles = SerializedShieldMigrationBackup.GetSessionFiles();
+        }
+
         private void PreviewReferences(SerializedShieldScriptInfo script)
         {
             List<string> targetPaths = SerializedShieldMigrationProcessor.PreviewTargets(script, options);
@@ -202,11 +282,32 @@ namespace AlphaBoysLab.SerializedShield.Editor
             statusMessage = string.Format("Found {0} serialized file(s) referencing {1}.", targetPaths.Count, script.ScriptPath);
         }
 
+        private void DryRunScript(SerializedShieldScriptInfo script)
+        {
+            SerializedShieldDryRunResult dryRun = SerializedShieldMigrationProcessor.DryRun(script, options);
+
+            if (dryRun.Cancelled)
+            {
+                statusMessage = "Dry run cancelled.";
+                return;
+            }
+
+            foreach (string line in dryRun.Lines)
+            {
+                Debug.Log("[SerializedShield] Dry run: " + line);
+            }
+
+            statusMessage = string.Format(
+                "Dry run for {0}: {1} key rename(s) across the project. See the Console for the per-file diff.",
+                script.ScriptPath,
+                dryRun.TotalRenameCount);
+        }
+
         private void MigrateScript(SerializedShieldScriptInfo script)
         {
             if (!EditorUtility.DisplayDialog(
                 "Migrate serialized data",
-                "This will backup files, reserialize referenced assets, and then apply the selected cleanup options.",
+                "This will backup files, rewrite and reserialize referenced assets, verify the migration, and then apply the selected cleanup options.",
                 "Migrate",
                 "Cancel"))
             {
@@ -216,14 +317,10 @@ namespace AlphaBoysLab.SerializedShield.Editor
             try
             {
                 SerializedShieldMigrationResult result = SerializedShieldMigrationProcessor.MigrateScript(script, options);
+                LogResultWarnings(result);
                 RefreshScriptList();
-                statusMessage = string.Format(
-                    "Migrated {0}. Text-migrated {1} field(s) in {2} file(s), reserialized {3} file(s), removed {4} attribute(s).",
-                    result.ScriptPath,
-                    result.TextMigratedFieldCount,
-                    result.TextMigratedAssetCount,
-                    result.ReserializedAssetCount,
-                    result.RemovedAttributeCount);
+                RefreshBackupList();
+                statusMessage = DescribeResult(result);
             }
             catch (Exception exception)
             {
@@ -236,41 +333,85 @@ namespace AlphaBoysLab.SerializedShield.Editor
         {
             if (!EditorUtility.DisplayDialog(
                 "Migrate all listed scripts",
-                string.Format("This will run migration for {0} visible script(s). A backup will be created for each migration if backup is enabled.", scriptsToMigrate.Count),
+                string.Format("This will run migration for {0} visible script(s). One shared backup session will be created if backup is enabled.", scriptsToMigrate.Count),
                 "Migrate All",
                 "Cancel"))
             {
                 return;
             }
 
+            SerializedShieldBackupSession sharedBackupSession = options.CreateBackup
+                ? SerializedShieldMigrationBackup.CreateSession()
+                : null;
+
             int totalReserialized = 0;
             int totalRemoved = 0;
             int totalTextMigratedAssets = 0;
             int totalTextMigratedFields = 0;
+            List<string> failures = new List<string>();
+            bool stopped = false;
 
             foreach (SerializedShieldScriptInfo script in scriptsToMigrate.ToArray())
             {
-                SerializedShieldMigrationResult result = SerializedShieldMigrationProcessor.MigrateScript(script, options);
-                totalReserialized += result.ReserializedAssetCount;
-                totalRemoved += result.RemovedAttributeCount;
-                totalTextMigratedAssets += result.TextMigratedAssetCount;
-                totalTextMigratedFields += result.TextMigratedFieldCount;
+                try
+                {
+                    SerializedShieldMigrationResult result = SerializedShieldMigrationProcessor.MigrateScript(script, options, sharedBackupSession);
+                    LogResultWarnings(result);
+
+                    if (result.Aborted)
+                    {
+                        // Abort reasons (cancel, dirty scenes, prefab stage, binary
+                        // serialization) apply to the whole batch: stop loudly instead of
+                        // continuing into the same wall.
+                        failures.Add(script.ScriptPath + ": aborted (" + result.AbortReason + ")");
+                        stopped = true;
+                        break;
+                    }
+
+                    totalReserialized += result.ReserializedAssetCount;
+                    totalRemoved += result.RemovedAttributeCount;
+                    totalTextMigratedAssets += result.TextMigratedAssetCount;
+                    totalTextMigratedFields += result.TextMigratedFieldCount;
+                }
+                catch (Exception exception)
+                {
+                    // One failing script must not abort the rest of the batch (audit U-H10).
+                    Debug.LogException(exception);
+                    failures.Add(script.ScriptPath + ": " + exception.Message);
+                }
             }
 
             RefreshScriptList();
+            RefreshBackupList();
             statusMessage = string.Format(
-                "Migration complete. Text-migrated {0} field(s) in {1} file(s), reserialized {2} file(s), removed {3} attribute(s).",
+                "{0} Text-migrated {1} field key(s) in {2} file(s), reserialized {3} file(s), removed {4} attribute(s).",
+                stopped ? "Migration stopped." : "Migration complete.",
                 totalTextMigratedFields,
                 totalTextMigratedAssets,
                 totalReserialized,
                 totalRemoved);
+
+            if (sharedBackupSession != null)
+            {
+                statusMessage += " Backup: " + sharedBackupSession.SessionFilePath;
+            }
+
+            if (failures.Count > 0)
+            {
+                statusMessage += string.Format(" {0} script(s) failed or aborted - see the Console.", failures.Count);
+
+                foreach (string failure in failures)
+                {
+                    Debug.LogError("[SerializedShield] Migration issue: " + failure);
+                }
+            }
         }
 
         private void RestoreBackup(string sessionFilePath)
         {
             if (!EditorUtility.DisplayDialog(
-                "Restore latest backup",
-                "This will overwrite current files with the latest backup session.",
+                "Restore backup",
+                "This will overwrite current files with the backup session:\n" + sessionFilePath,
                 "Restore",
                 "Cancel"))
             {
@@ -278,16 +419,68 @@ namespace AlphaBoysLab.SerializedShield.Editor
             }
 
             string message;
+            SerializedShieldMigrationBackup.RestoreSession(sessionFilePath, out message);
+            RefreshScriptList();
+            RefreshBackupList();
+            statusMessage = message;
+        }
 
-            if (SerializedShieldMigrationBackup.RestoreSession(sessionFilePath, out message))
+        private static string DescribeResult(SerializedShieldMigrationResult result)
+        {
+            if (result.Aborted)
             {
-                RefreshScriptList();
-                statusMessage = message;
+                return "Migration aborted: " + result.AbortReason;
             }
-            else
+
+            string description = string.Format(
+                "Migrated {0}. Text-migrated {1} field key(s) in {2} file(s), reserialized {3} file(s), removed {4} attribute(s).",
+                result.ScriptPath,
+                result.TextMigratedFieldCount,
+                result.TextMigratedAssetCount,
+                result.ReserializedAssetCount,
+                result.RemovedAttributeCount);
+
+            if (result.AttributeRemovalSkipped)
             {
-                statusMessage = message;
+                description += " Attribute removal skipped: " + result.AttributeRemovalSkipReason;
             }
+            else if (result.KeptAttributeNames.Count > 0)
+            {
+                description += string.Format(" Kept {0} attribute(s) pending verification - see the Console.", result.KeptAttributeNames.Count);
+            }
+
+            if (!string.IsNullOrEmpty(result.BackupSessionPath))
+            {
+                description += " Backup: " + result.BackupSessionPath;
+            }
+
+            return description;
+        }
+
+        private static void LogResultWarnings(SerializedShieldMigrationResult result)
+        {
+            foreach (string warning in result.Warnings)
+            {
+                Debug.LogWarning("[SerializedShield] " + warning);
+            }
+        }
+
+        private void LoadOptions()
+        {
+            options.IncludePrefabs = EditorPrefs.GetBool(PrefsPrefix + "IncludePrefabs", true);
+            options.IncludeScenes = EditorPrefs.GetBool(PrefsPrefix + "IncludeScenes", true);
+            options.IncludeAssetFiles = EditorPrefs.GetBool(PrefsPrefix + "IncludeAssetFiles", true);
+            options.CreateBackup = EditorPrefs.GetBool(PrefsPrefix + "CreateBackup", true);
+            options.RemoveAttributesAfterMigration = EditorPrefs.GetBool(PrefsPrefix + "RemoveAttributesAfterMigration", true);
+        }
+
+        private void SaveOptions()
+        {
+            EditorPrefs.SetBool(PrefsPrefix + "IncludePrefabs", options.IncludePrefabs);
+            EditorPrefs.SetBool(PrefsPrefix + "IncludeScenes", options.IncludeScenes);
+            EditorPrefs.SetBool(PrefsPrefix + "IncludeAssetFiles", options.IncludeAssetFiles);
+            EditorPrefs.SetBool(PrefsPrefix + "CreateBackup", options.CreateBackup);
+            EditorPrefs.SetBool(PrefsPrefix + "RemoveAttributesAfterMigration", options.RemoveAttributesAfterMigration);
         }
 
         private List<SerializedShieldScriptInfo> GetVisibleScripts()

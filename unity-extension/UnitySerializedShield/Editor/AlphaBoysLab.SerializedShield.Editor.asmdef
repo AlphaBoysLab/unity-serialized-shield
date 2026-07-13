@@ -1,3 +1,6 @@
 {
-	"name": "AlphaBoysLab.SerializedShield.Editor"
+	"name": "AlphaBoysLab.SerializedShield.Editor",
+	"includePlatforms": [
+		"Editor"
+	]
 }

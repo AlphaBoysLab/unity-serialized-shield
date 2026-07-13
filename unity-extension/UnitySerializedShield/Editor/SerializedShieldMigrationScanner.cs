@@ -1,7 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 
@@ -9,68 +9,82 @@ namespace AlphaBoysLab.SerializedShield.Editor
 {
     public static class SerializedShieldMigrationScanner
     {
-        private static readonly Regex FormerlySerializedAsRegex = new Regex(
-            @"\[\s*(?:UnityEngine\.Serialization\.)?FormerlySerializedAs(?:Attribute)?\s*\(\s*""(?<name>(?:\\.|[^""\\])*)""\s*\)\s*\]",
-            RegexOptions.Compiled);
-
-        private static readonly Regex FormerlySerializedAsLineRegex = new Regex(
-            @"(?m)^[ \t]*\[\s*(?:UnityEngine\.Serialization\.)?FormerlySerializedAs(?:Attribute)?\s*\(\s*""(?:\\.|[^""\\])*""\s*\)\s*\][ \t]*(?:\r\n|\n|\r)",
-            RegexOptions.Compiled);
-
-        private static readonly Regex FormerlySerializedAsInlineRegex = new Regex(
-            @"[ \t]*\[\s*(?:UnityEngine\.Serialization\.)?FormerlySerializedAs(?:Attribute)?\s*\(\s*""(?:\\.|[^""\\])*""\s*\)\s*\][ \t]*",
-            RegexOptions.Compiled);
-        private static readonly Regex AttributeRegex = new Regex(
-            @"\[\s*(?<name>(?:\w+\.)?\w+)(?:Attribute)?(?:\s*\((?<args>[^\]]*)\))?\s*\]",
-            RegexOptions.Compiled);
-        private static readonly Regex FieldNameRegex = new Regex(
-            @"\b(?<name>@?[A-Za-z_]\w*)\s*(?:=[^;]*)?;",
-            RegexOptions.Compiled);
+        private static readonly string[] VerificationExtensions = { ".unity", ".prefab", ".asset", ".anim", ".preset" };
 
         public static List<SerializedShieldScriptInfo> FindScriptsWithFormerlySerializedAs()
+        {
+            return FindScriptsWithFormerlySerializedAs(null);
+        }
+
+        /// <summary>
+        /// Finds scripts containing FormerlySerializedAs attributes. The optional
+        /// <paramref name="progress"/> callback receives (0..1, info) and returns true to
+        /// cancel the scan.
+        /// </summary>
+        public static List<SerializedShieldScriptInfo> FindScriptsWithFormerlySerializedAs(Func<float, string, bool> progress)
         {
             List<SerializedShieldScriptInfo> scripts = new List<SerializedShieldScriptInfo>();
             string[] scriptGuids = AssetDatabase.FindAssets("t:MonoScript");
 
-            foreach (string scriptGuid in scriptGuids)
+            for (int guidIndex = 0; guidIndex < scriptGuids.Length; guidIndex++)
             {
+                string scriptGuid = scriptGuids[guidIndex];
                 string scriptPath = AssetDatabase.GUIDToAssetPath(scriptGuid);
 
-                if (!scriptPath.EndsWith(".cs"))
+                if (string.IsNullOrEmpty(scriptPath)
+                    || !scriptPath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                string absolutePath = SerializedShieldPathUtility.ToAbsolutePath(scriptPath);
-
-                if (!File.Exists(absolutePath))
+                if (progress != null
+                    && progress((float)guidIndex / Math.Max(scriptGuids.Length, 1), scriptPath))
                 {
-                    continue;
+                    break;
                 }
 
-                string text = File.ReadAllText(absolutePath);
-                MatchCollection matches = FormerlySerializedAsRegex.Matches(text);
-                List<SerializedShieldFieldMigration> fieldMigrations = FindFieldMigrations(text);
-
-                if (matches.Count == 0)
+                try
                 {
-                    continue;
+                    string absolutePath = SerializedShieldPathUtility.ToPhysicalPath(scriptPath);
+
+                    if (absolutePath == null || !File.Exists(absolutePath))
+                    {
+                        continue;
+                    }
+
+                    string text = File.ReadAllText(absolutePath);
+                    int attributeCount = SerializedShieldScriptAnalyzer.CountFormerlySerializedAsAttributes(text);
+
+                    if (attributeCount == 0)
+                    {
+                        continue;
+                    }
+
+                    // Field-migration analysis runs only for scripts that actually contain
+                    // the attribute (audit U-M8).
+                    List<string> warnings = new List<string>();
+                    List<SerializedShieldFieldMigration> fieldMigrations =
+                        SerializedShieldScriptAnalyzer.FindFieldMigrations(text, warnings);
+
+                    SerializedShieldScriptInfo info = new SerializedShieldScriptInfo
+                    {
+                        ScriptPath = scriptPath,
+                        ScriptGuid = scriptGuid,
+                        AttributeCount = attributeCount
+                    };
+                    info.FieldMigrations.AddRange(fieldMigrations);
+                    info.FormerNames.AddRange(SerializedShieldScriptAnalyzer.ExtractFormerlySerializedAsNames(text));
+                    info.Warnings.AddRange(warnings);
+
+                    scripts.Add(info);
                 }
-
-                SerializedShieldScriptInfo info = new SerializedShieldScriptInfo
+                catch (Exception exception)
                 {
-                    ScriptPath = scriptPath,
-                    ScriptGuid = scriptGuid,
-                    AttributeCount = matches.Count
-                };
-                info.FieldMigrations.AddRange(fieldMigrations);
-
-                foreach (Match match in matches)
-                {
-                    info.FormerNames.Add(UnescapeCSharpString(match.Groups["name"].Value));
+                    Debug.LogWarning(string.Format(
+                        "[SerializedShield] Could not scan script '{0}': {1}",
+                        scriptPath,
+                        exception.Message));
                 }
-
-                scripts.Add(info);
             }
 
             return scripts.OrderBy(script => script.ScriptPath).ToList();
@@ -78,93 +92,124 @@ namespace AlphaBoysLab.SerializedShield.Editor
 
         public static List<string> FindSerializedAssetsReferencingScript(string scriptGuid, SerializedShieldMigrationOptions options)
         {
-            HashSet<string> targetAssetPaths = new HashSet<string>();
+            return FindSerializedAssetsReferencingScript(scriptGuid, options, null).TargetAssetPaths;
+        }
 
-            foreach (string absolutePath in Directory.EnumerateFiles(Application.dataPath, "*", SearchOption.AllDirectories))
+        /// <summary>
+        /// Finds serialized assets referencing the script GUID. Enumerates
+        /// AssetDatabase.GetAllAssetPaths so embedded and local package assets are
+        /// covered (audit U-H2) and hidden folders are excluded automatically. Unreadable
+        /// files are reported instead of silently skipped (audit U-H7).
+        /// </summary>
+        public static SerializedShieldAssetScanResult FindSerializedAssetsReferencingScript(
+            string scriptGuid,
+            SerializedShieldMigrationOptions options,
+            Func<float, string, bool> progress)
+        {
+            SerializedShieldAssetScanResult result = new SerializedShieldAssetScanResult();
+            List<string> candidateAssetPaths = new List<string>();
+
+            foreach (string assetPath in AssetDatabase.GetAllAssetPaths())
             {
-                string extension = Path.GetExtension(absolutePath).ToLowerInvariant();
+                string extension = Path.GetExtension(assetPath).ToLowerInvariant();
 
-                if (!ShouldScanExtension(extension, options))
+                if (ShouldScanExtension(extension, options))
                 {
-                    continue;
-                }
-
-                string text;
-
-                try
-                {
-                    text = File.ReadAllText(absolutePath);
-                }
-                catch (IOException)
-                {
-                    continue;
-                }
-
-                if (text.Contains(scriptGuid))
-                {
-                    targetAssetPaths.Add(SerializedShieldPathUtility.ToAssetPath(absolutePath));
+                    candidateAssetPaths.Add(assetPath);
                 }
             }
 
-            return targetAssetPaths.OrderBy(path => path).ToList();
+            for (int candidateIndex = 0; candidateIndex < candidateAssetPaths.Count; candidateIndex++)
+            {
+                string assetPath = candidateAssetPaths[candidateIndex];
+
+                if (progress != null
+                    && progress((float)candidateIndex / Math.Max(candidateAssetPaths.Count, 1), assetPath))
+                {
+                    result.Cancelled = true;
+                    return result;
+                }
+
+                string absolutePath = SerializedShieldPathUtility.ToPhysicalPath(assetPath);
+
+                if (absolutePath == null || Directory.Exists(absolutePath))
+                {
+                    continue;
+                }
+
+                if (!File.Exists(absolutePath))
+                {
+                    result.UnreadableAssetPaths.Add(assetPath);
+                    continue;
+                }
+
+                try
+                {
+                    if (FileContainsText(absolutePath, scriptGuid))
+                    {
+                        result.TargetAssetPaths.Add(assetPath);
+                    }
+                }
+                catch (Exception)
+                {
+                    result.UnreadableAssetPaths.Add(assetPath);
+                }
+            }
+
+            result.TargetAssetPaths.Sort(StringComparer.Ordinal);
+            return result;
+        }
+
+        /// <summary>
+        /// Enumerates every asset path relevant to post-migration verification:
+        /// scenes, prefabs, .asset files, animation clips, and presets, regardless of the
+        /// migration include options.
+        /// </summary>
+        public static List<string> GetVerificationAssetPaths()
+        {
+            List<string> assetPaths = new List<string>();
+
+            foreach (string assetPath in AssetDatabase.GetAllAssetPaths())
+            {
+                string extension = Path.GetExtension(assetPath).ToLowerInvariant();
+
+                if (Array.IndexOf(VerificationExtensions, extension) >= 0)
+                {
+                    assetPaths.Add(assetPath);
+                }
+            }
+
+            return assetPaths;
         }
 
         public static string RemoveFormerlySerializedAsAttributes(string text)
         {
-            string withoutAttributeLines = FormerlySerializedAsLineRegex.Replace(text, string.Empty);
-            return FormerlySerializedAsInlineRegex.Replace(withoutAttributeLines, " ");
+            return SerializedShieldScriptAnalyzer.RemoveFormerlySerializedAsAttributes(text);
         }
 
         public static int CountFormerlySerializedAsAttributes(string text)
         {
-            return FormerlySerializedAsRegex.Matches(text).Count;
+            return SerializedShieldScriptAnalyzer.CountFormerlySerializedAsAttributes(text);
         }
 
         public static List<SerializedShieldFieldMigration> FindFieldMigrations(string text)
         {
-            List<SerializedShieldFieldMigration> migrations = new List<SerializedShieldFieldMigration>();
-            List<string> pendingAttributeLines = new List<string>();
+            return SerializedShieldScriptAnalyzer.FindFieldMigrations(text);
+        }
 
-            foreach (string line in SplitLines(text))
+        private static bool FileContainsText(string absolutePath, string value)
+        {
+            // GUIDs never span lines, so a streaming line scan avoids loading large
+            // .asset files into memory during the scan (audit U-M6).
+            foreach (string line in File.ReadLines(absolutePath))
             {
-                string trimmed = line.Trim();
-
-                if (trimmed.StartsWith("[") && !trimmed.Contains(";"))
+                if (line.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    pendingAttributeLines.Add(line);
-                    continue;
-                }
-
-                if (pendingAttributeLines.Count > 0 && line.Contains(";"))
-                {
-                    string attributesText = string.Join("\n", pendingAttributeLines);
-                    List<string> formerNames = ExtractFormerlySerializedAsNames(attributesText);
-
-                    if (formerNames.Count > 0)
-                    {
-                        string lineWithoutAttributes = AttributeRegex.Replace(line, string.Empty);
-                        Match fieldMatch = FieldNameRegex.Match(lineWithoutAttributes);
-
-                        if (fieldMatch.Success)
-                        {
-                            string currentName = NormalizeSerializedFieldName(fieldMatch.Groups["name"].Value);
-                            SerializedShieldFieldMigration migration = new SerializedShieldFieldMigration
-                            {
-                                CurrentName = currentName
-                            };
-                            migration.FormerNames.AddRange(formerNames.Distinct());
-                            migrations.Add(migration);
-                        }
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(trimmed))
-                {
-                    pendingAttributeLines.Clear();
+                    return true;
                 }
             }
 
-            return migrations;
+            return false;
         }
 
         private static bool ShouldScanExtension(string extension, SerializedShieldMigrationOptions options)
@@ -185,41 +230,6 @@ namespace AlphaBoysLab.SerializedShield.Editor
             }
 
             return false;
-        }
-
-        private static string UnescapeCSharpString(string value)
-        {
-            return value.Replace("\\\"", "\"").Replace("\\\\", "\\");
-        }
-
-        private static List<string> ExtractFormerlySerializedAsNames(string attributesText)
-        {
-            List<string> names = new List<string>();
-
-            foreach (Match match in FormerlySerializedAsRegex.Matches(attributesText))
-            {
-                names.Add(UnescapeCSharpString(match.Groups["name"].Value));
-            }
-
-            return names;
-        }
-
-        private static string NormalizeSerializedFieldName(string name)
-        {
-            return name.StartsWith("@") ? name.Substring(1) : name;
-        }
-
-        private static IEnumerable<string> SplitLines(string text)
-        {
-            using (StringReader reader = new StringReader(text))
-            {
-                string line;
-
-                while ((line = reader.ReadLine()) != null)
-                {
-                    yield return line;
-                }
-            }
         }
     }
 }
