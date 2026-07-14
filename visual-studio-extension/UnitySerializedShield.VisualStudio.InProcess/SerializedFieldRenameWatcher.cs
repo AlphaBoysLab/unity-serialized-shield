@@ -36,6 +36,12 @@ namespace UnitySerializedShield.VisualStudio.InProcess
         private readonly VisualStudioWorkspace workspace;
         private readonly JoinableTaskFactory joinableTaskFactory;
 
+        // Best-effort probe: returns true while an inline-rename session is live.
+        // Supplied by the package via reflection (no fragile compile dependency on
+        // VS-internal editor APIs). When null, the self-heal loop covers the same
+        // case reactively — so there is never a regression if the probe is absent.
+        private readonly Func<bool>? isInlineRenameSessionActive;
+
         // Guard against reacting to our own edit echo. The detector is already
         // idempotent (it returns no rename once the attribute exists), so this is
         // an optimization, not the sole safety net.
@@ -73,10 +79,14 @@ namespace UnitySerializedShield.VisualStudio.InProcess
             public CancellationTokenSource Cancellation = null!;
         }
 
-        public SerializedFieldRenameWatcher(VisualStudioWorkspace workspace, JoinableTaskFactory joinableTaskFactory)
+        public SerializedFieldRenameWatcher(
+            VisualStudioWorkspace workspace,
+            JoinableTaskFactory joinableTaskFactory,
+            Func<bool>? isInlineRenameSessionActive = null)
         {
             this.workspace = workspace;
             this.joinableTaskFactory = joinableTaskFactory;
+            this.isInlineRenameSessionActive = isInlineRenameSessionActive;
         }
 
         public void Start() => workspace.WorkspaceChanged += OnWorkspaceChanged;
@@ -252,8 +262,55 @@ namespace UnitySerializedShield.VisualStudio.InProcess
             return migratedRoot is null || renames.Count == 0;
         }
 
+        // Blocks (asynchronously, bounded) until no inline-rename session is active,
+        // so our edit is applied only AFTER the session has fully committed and done
+        // its own final write — which is what stops the session from overwriting our
+        // attribute. No-op when the service is unavailable (self-heal then covers it).
+        private async Task WaitForRenameSessionToEndAsync()
+        {
+            if (isInlineRenameSessionActive is null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < 100; i++) // ~10 s ceiling so a stuck session can't hang us
+            {
+                await joinableTaskFactory.SwitchToMainThreadAsync();
+
+                bool active;
+
+                try
+                {
+                    active = isInlineRenameSessionActive();
+                }
+                catch (Exception exception)
+                {
+                    // A reflection/COM hiccup must never block the pipeline; fall
+                    // through to the self-heal path.
+                    DiagnosticLog.Write($"Inline-rename probe threw; skipping gate: {exception.Message}");
+                    return;
+                }
+
+                if (!active)
+                {
+                    return;
+                }
+
+                await TaskScheduler.Default;
+                await Task.Delay(100).ConfigureAwait(false);
+            }
+
+            DiagnosticLog.Write("Inline rename session still active after wait ceiling; proceeding anyway.");
+        }
+
         private async Task ProcessDocumentAsync(DocumentId documentId, Document previousDocument)
         {
+            // Never apply while an inline-rename session is live: it finalizes by
+            // writing the file itself and would overwrite our attribute. Waiting for
+            // it to end means our edit lands last and sticks on the first try — the
+            // instant, flicker-free path.
+            await WaitForRenameSessionToEndAsync();
+
             // All parsing and detection happens OFF the UI thread; only the final
             // verify-and-apply hop runs on it.
             var previousRoot = await previousDocument.GetSyntaxRootAsync().ConfigureAwait(false);

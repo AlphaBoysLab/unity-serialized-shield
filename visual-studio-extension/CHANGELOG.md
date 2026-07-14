@@ -2,6 +2,10 @@
 
 All notable changes to UnitySerializedShield Visual Studio will be documented in this file.
 
+## 2.2.0
+
+- **Instant, flicker-free attribute (Rider-like result).** The extension now waits for Visual Studio's inline-rename session to finish before writing `[FormerlySerializedAs]`, so its edit lands last and sticks on the first try — no visible re-apply, no delay beyond the rename itself. It detects the live session through `IInlineRenameService` (resolved reflectively, so there is no fragile build dependency on VS-internal assemblies and no version lock-in). If that service can't be resolved, it automatically falls back to the 2.1.3 self-heal, so protection is never lost. One caveat vs. Rider: Visual Studio gives external extensions no way to join the rename's own undo transaction, so undoing is still two steps (rename, then attribute) rather than one.
+
 ## 2.1.3
 
 - **Fixed (for real): the attribute was still being overwritten after apply.** 2.1.2 waited for edits to settle, but Visual Studio's inline-rename session writes the file ONE more time even after our settled apply (observed ~85-260 ms later), dropping the attribute again. The extension now self-heals: after applying it verifies (1 s later) that the attribute survived and re-applies if the session reverted it, up to a few times. Because the session's overwrite is a one-time finalize, a second pass wins and the attribute sticks. Detection is idempotent, so extra passes are no-ops.

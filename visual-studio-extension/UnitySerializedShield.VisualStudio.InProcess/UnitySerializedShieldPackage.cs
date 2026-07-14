@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Reflection;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.LanguageServices;
 using Microsoft.VisualStudio.Shell;
@@ -77,9 +78,12 @@ namespace UnitySerializedShield.VisualStudio.InProcess
                 return;
             }
 
-            watcher = new SerializedFieldRenameWatcher(workspace, this.JoinableTaskFactory);
+            var isRenameSessionActive = TryCreateInlineRenameProbe(componentModel);
+
+            watcher = new SerializedFieldRenameWatcher(workspace, this.JoinableTaskFactory, isRenameSessionActive);
             watcher.Start();
-            DiagnosticLog.Write("Watcher started; subscribed to WorkspaceChanged.");
+            DiagnosticLog.Write(
+                $"Watcher started; subscribed to WorkspaceChanged (inline-rename gate: {(isRenameSessionActive is null ? "off" : "on")}).");
 
             // Hook DTE command events on the UI thread so we can recognize the Rename
             // command independently of MEF. Keep the CommandEvents reference alive or
@@ -97,6 +101,63 @@ namespace UnitySerializedShield.VisualStudio.InProcess
             else
             {
                 DiagnosticLog.Write("DTE was NOT available; rename command events not hooked.");
+            }
+        }
+
+        // Builds a best-effort probe for "is an inline-rename session active" WITHOUT
+        // a compile-time dependency on the unstable VS-internal editor assemblies.
+        // IInlineRenameService lives in Microsoft.CodeAnalysis.EditorFeatures.dll,
+        // which VS ships but does not publish on NuGet at this version, so we resolve
+        // it reflectively. Returns null if anything is missing — the watcher then
+        // relies on its reactive self-heal instead, with no loss of correctness.
+        private static Func<bool>? TryCreateInlineRenameProbe(IComponentModel? componentModel)
+        {
+            if (componentModel is null)
+            {
+                return null;
+            }
+
+            try
+            {
+                const string typeName = "Microsoft.CodeAnalysis.Editor.IInlineRenameService";
+
+                var serviceType = Type.GetType($"{typeName}, Microsoft.CodeAnalysis.EditorFeatures", throwOnError: false);
+
+                if (serviceType is null)
+                {
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        serviceType = assembly.GetType(typeName, throwOnError: false);
+
+                        if (serviceType is not null)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (serviceType is null)
+                {
+                    DiagnosticLog.Write("IInlineRenameService type not found; inline-rename gate off.");
+                    return null;
+                }
+
+                var getService = typeof(IComponentModel).GetMethod("GetService")?.MakeGenericMethod(serviceType);
+                var service = getService?.Invoke(componentModel, null);
+                var activeSessionProperty = serviceType.GetProperty("ActiveSession");
+
+                if (service is null || activeSessionProperty is null)
+                {
+                    DiagnosticLog.Write("IInlineRenameService/ActiveSession not resolvable; inline-rename gate off.");
+                    return null;
+                }
+
+                return () => activeSessionProperty.GetValue(service) != null;
+            }
+            catch (Exception exception)
+            {
+                DiagnosticLog.Write($"Inline-rename probe setup failed; gate off: {exception.Message}");
+                return null;
             }
         }
 
